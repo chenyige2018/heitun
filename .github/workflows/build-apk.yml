@@ -52,6 +52,8 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > app/keystore.jks
             echo "使用仓库 Secret 中的签名文件"
+          elif [ -f app/keystore.jks ]; then
+            echo "使用仓库中的签名文件"
           else
             keytool -genkeypair -v -keystore app/keystore.jks -alias tunlian \
               -keyalg RSA -keysize 2048 -validity 10950 \
