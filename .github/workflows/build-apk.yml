@@ -27,13 +27,19 @@ jobs:
 
       - name: Accept SDK licenses and install components
         run: |
+          mkdir -p "$ANDROID_HOME/licenses"
+          printf "\n8933bad161af4178b1185d1a37fbf41ea5269c55" > "$ANDROID_HOME/licenses/android-sdk-license"
+          printf "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          printf "\nd975f751698a77b662f1254ddbeed3901e976f5a" > "$ANDROID_HOME/licenses/intel-android-extra-license"
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -f "$SDKM" ]; then SDKM=$(command -v sdkmanager || true); fi
+          echo "sdkmanager=$SDKM"
           if [ -n "$SDKM" ] && [ -f "$SDKM" ]; then
             yes | "$SDKM" --licenses > /dev/null 2>&1 || true
-            yes | "$SDKM" "platform-tools" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+            yes | "$SDKM" "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
           fi
-          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" 2>/dev/null || echo "no platforms dir"
+          ls "$ANDROID_HOME/build-tools" 2>/dev/null || echo "no build-tools dir"
 
       - name: Prepare signing keystore
         env:
