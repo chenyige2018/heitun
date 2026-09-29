@@ -50,8 +50,30 @@ jobs:
             echo "首次构建，已自动生成签名文件（请在构建产物中下载保存）"
           fi
 
+      - name: Show SDK contents
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME" || true
+          ls "$ANDROID_HOME/platforms" 2>/dev/null || true
+          ls "$ANDROID_HOME/build-tools" 2>/dev/null || true
+
       - name: Build release APK
-        run: gradle assembleRelease --no-daemon --stacktrace
+        id: apkbuild
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Fail job if build failed
+        if: steps.apkbuild.outcome == 'failure'
+        run: exit 1
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
