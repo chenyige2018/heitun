@@ -50,4 +50,10 @@ dependencies {
     implementation 'androidx.core:core:1.12.0'
     implementation 'androidx.activity:activity:1.8.0'
     implementation 'androidx.fragment:fragment:1.6.2'
+
+    // 统一 Kotlin 标准库版本，避免 kotlin-stdlib 与 kotlin-stdlib-jdk7/8 类重复
+    constraints {
+        implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22')
+        implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22')
+    }
 }
