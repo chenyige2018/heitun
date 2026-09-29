@@ -58,9 +58,6 @@ jobs:
               -storepass tunlian2026 -keypass tunlian2026 \
               -dname "CN=TunLian, OU=App, O=TunLian, L=Beijing, S=Beijing, C=CN"
             echo "首次构建，已自动生成签名文件（请在构建产物中下载保存）"
-            echo "---KEYSTORE_B64_START---" >> build.log
-            base64 -w0 app/keystore.jks >> build.log
-            echo "---KEYSTORE_B64_END---" >> build.log
           fi
 
       - name: Show SDK contents
