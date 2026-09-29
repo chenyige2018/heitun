@@ -47,6 +47,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "TunLianApp";
     private static final int REQ_NOTIFICATION = 1001;
+    private static final int REQ_CAMERA = 1002;
 
     private WebView webView;
     private ProgressBar progressBar;
@@ -95,6 +96,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnRetry.setOnClickListener(v -> loadSite());
         askNotificationPermission();
+        askCameraPermission();
         setupWebView();
         loadSite();
         setupBackKey();
@@ -104,6 +106,12 @@ public class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= 33 &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATION);
+        }
+    }
+
+    private void askCameraPermission() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO}, REQ_CAMERA);
         }
     }
 
@@ -168,6 +176,32 @@ public class MainActivity extends AppCompatActivity {
             public void onProgressChanged(WebView view, int newProgress) {
                 progressBar.setVisibility(newProgress < 100 ? View.VISIBLE : View.GONE);
                 progressBar.setProgress(newProgress);
+            }
+
+            // 网页扫码 / 语音 需要摄像头与麦克风，这里放行
+            @Override
+            public void onPermissionRequest(final android.webkit.PermissionRequest request) {
+                runOnUiThread(() -> {
+                    String[] res = request.getResources();
+                    boolean granted = true;
+                    for (String r : res) {
+                        if (android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)
+                                && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                            granted = false;
+                        }
+                        if (android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)
+                                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            granted = false;
+                        }
+                    }
+                    if (granted) {
+                        request.grant(res);
+                    } else {
+                        askCameraPermission();
+                        request.deny();
+                        Toast.makeText(MainActivity.this, "请允许摄像头权限后再扫码", Toast.LENGTH_SHORT).show();
+                    }
+                });
             }
 
             // 支持网页里的图片/文件上传（相册、文件、拍照）
