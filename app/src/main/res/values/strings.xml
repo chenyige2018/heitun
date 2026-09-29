@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">豚链</string>
+    <!-- APP 打开的网址，改这里即可 -->
+    <string name="site_url">https://22.heitun.link/</string>
+</resources>
