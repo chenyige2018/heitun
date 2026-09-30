@@ -52,6 +52,7 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private ProgressBar progressBar;
     private View errorView;
+    private UpdateManager updateManager;
 
     private ValueCallback<Uri[]> filePathCallback;
     private Uri cameraUri;
@@ -100,6 +101,10 @@ public class MainActivity extends AppCompatActivity {
         setupWebView();
         loadSite();
         setupBackKey();
+
+        // 每次启动检测新版本，有新包就弹窗让用户一键升级
+        updateManager = new UpdateManager(this);
+        updateManager.check();
     }
 
     private void askNotificationPermission() {
@@ -344,7 +349,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // 从“允许安装未知应用”设置页返回后，继续完成安装
+        if (updateManager != null) {
+            updateManager.installPending();
+        }
+    }
+
+    @Override
     protected void onDestroy() {
+        if (updateManager != null) {
+            updateManager.destroy();
+        }
         if (webView != null) {
             webView.destroy();
         }

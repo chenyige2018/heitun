@@ -10,8 +10,9 @@ android {
         applicationId "com.tunlian.app"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0.0"
+        // 每次出包必须 versionCode +1，否则老版本 APP 检测不到更新
+        versionCode 2
+        versionName "1.0.1"
     }
 
     signingConfigs {
