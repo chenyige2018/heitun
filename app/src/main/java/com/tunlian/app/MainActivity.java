@@ -5,9 +5,11 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.ClipData;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.MediaScannerConnection;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -15,6 +17,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.webkit.CookieManager;
@@ -22,6 +25,7 @@ import android.webkit.DownloadListener;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -38,6 +42,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
 
 /**
  * 豚链 APP —— WebView 壳
@@ -48,6 +54,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG = "TunLianApp";
     private static final int REQ_NOTIFICATION = 1001;
     private static final int REQ_CAMERA = 1002;
+    private static final int REQ_WRITE = 1003;
 
     private WebView webView;
     private ProgressBar progressBar;
@@ -98,6 +105,11 @@ public class MainActivity extends AppCompatActivity {
         btnRetry.setOnClickListener(v -> loadSite());
         askNotificationPermission();
         askCameraPermission();
+        // Android 9 及以下保存图片到公共相册需要存储权限
+        if (Build.VERSION.SDK_INT < 29 &&
+                checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQ_WRITE);
+        }
         setupWebView();
         loadSite();
         setupBackKey();
@@ -134,6 +146,9 @@ public class MainActivity extends AppCompatActivity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         settings.setUserAgentString(settings.getUserAgentString() + " TunLianApp/" + BuildConfig.VERSION_NAME);
+
+        // 网页通过 window.TunLianApp 调用：转发分享到微信/QQ/系统面板、保存图片到相册
+        webView.addJavascriptInterface(new JsBridge(), "TunLianApp");
 
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
@@ -354,6 +369,124 @@ public class MainActivity extends AppCompatActivity {
         // 从“允许安装未知应用”设置页返回后，继续完成安装
         if (updateManager != null) {
             updateManager.installPending();
+        }
+    }
+
+    /** 网页 JS 桥：转发分享、保存图片 */
+    private class JsBridge {
+
+        /** 分享文本/链接，弹出系统分享面板（微信、QQ、本 APP 均可选择） */
+        @JavascriptInterface
+        public void shareText(final String text) {
+            runOnUiThread(() -> {
+                try {
+                    Intent send = new Intent(Intent.ACTION_SEND);
+                    send.setType("text/plain");
+                    send.putExtra(Intent.EXTRA_TEXT, text == null ? "" : text);
+                    startActivity(Intent.createChooser(send, "分享到"));
+                } catch (Exception e) {
+                    Log.e(TAG, "shareText error", e);
+                }
+            });
+        }
+
+        /** 分享图片（data:image/png;base64,...），可附带文字 */
+        @JavascriptInterface
+        public void shareImage(final String dataUrl, final String text) {
+            runOnUiThread(() -> {
+                Uri uri = dataUrlToCacheFile(dataUrl);
+                if (uri == null) {
+                    Toast.makeText(MainActivity.this, "图片数据无效，无法转发", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                try {
+                    Intent send = new Intent(Intent.ACTION_SEND);
+                    send.setType("image/png");
+                    if (text != null && !text.isEmpty()) {
+                        send.putExtra(Intent.EXTRA_TEXT, text);
+                    }
+                    send.putExtra(Intent.EXTRA_STREAM, uri);
+                    send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+                    Intent chooser = Intent.createChooser(send, "分享到");
+                    chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    chooser.setClipData(ClipData.newRawUri("share", uri));
+                    startActivity(chooser);
+                } catch (Exception e) {
+                    Log.e(TAG, "shareImage error", e);
+                    Toast.makeText(MainActivity.this, "转发失败", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        /** 保存图片到相册 Pictures/TunLian 目录 */
+        @JavascriptInterface
+        public void saveImage(final String dataUrl) {
+            runOnUiThread(() -> {
+                byte[] bytes = decodeDataUrl(dataUrl);
+                if (bytes == null) {
+                    Toast.makeText(MainActivity.this, "图片数据无效", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                try {
+                    String name = "TunLian_" + System.currentTimeMillis() + ".png";
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        ContentValues v = new ContentValues();
+                        v.put(MediaStore.Images.Media.DISPLAY_NAME, name);
+                        v.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+                        v.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/TunLian");
+                        Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
+                        try (OutputStream os = getContentResolver().openOutputStream(uri)) {
+                            os.write(bytes);
+                        }
+                        Toast.makeText(MainActivity.this, "已保存到相册 TunLian 目录", Toast.LENGTH_LONG).show();
+                    } else {
+                        if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                            Toast.makeText(MainActivity.this, "请授权存储权限后再保存", Toast.LENGTH_SHORT).show();
+                            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQ_WRITE);
+                            return;
+                        }
+                        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "TunLian");
+                        if (!dir.exists()) dir.mkdirs();
+                        File f = new File(dir, name);
+                        try (OutputStream os = new FileOutputStream(f)) {
+                            os.write(bytes);
+                        }
+                        MediaScannerConnection.scanFile(MainActivity.this,
+                                new String[]{f.getAbsolutePath()}, new String[]{"image/png"}, null);
+                        Toast.makeText(MainActivity.this, "已保存到相册 Pictures/TunLian", Toast.LENGTH_LONG).show();
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "saveImage error", e);
+                    Toast.makeText(MainActivity.this, "保存失败", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        private byte[] decodeDataUrl(String dataUrl) {
+            try {
+                if (dataUrl == null) return null;
+                int idx = dataUrl.indexOf("base64,");
+                if (idx < 0) return null;
+                return Base64.decode(dataUrl.substring(idx + 7), Base64.DEFAULT);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        private Uri dataUrlToCacheFile(String dataUrl) {
+            try {
+                byte[] bytes = decodeDataUrl(dataUrl);
+                if (bytes == null) return null;
+                File f = new File(getCacheDir(), "share_" + System.currentTimeMillis() + ".png");
+                try (OutputStream os = new FileOutputStream(f)) {
+                    os.write(bytes);
+                }
+                return FileProvider.getUriForFile(MainActivity.this,
+                        getPackageName() + ".fileprovider", f);
+            } catch (Exception e) {
+                return null;
+            }
         }
     }
 

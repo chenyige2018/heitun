@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- APP 内升级：允许安装下载的新版本 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Android 9 及以下保存分享图片到公共相册 -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
