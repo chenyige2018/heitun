@@ -49,18 +49,31 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
+          # 签名必须每次一致，否则用户覆盖安装会报"签名不一致"。
+          # 优先级：Secret → 仓库内 keystore_b64.txt → 兜底才生成（生成会导致签名漂移）
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > app/keystore.jks
-            echo "使用仓库 Secret 中的签名文件"
-          elif [ -f app/keystore.jks ]; then
-            echo "使用仓库中的签名文件"
+            echo "source=Secret KEYSTORE_BASE64"
+          elif [ -f keystore_b64.txt ]; then
+            base64 -d keystore_b64.txt > app/keystore.jks
+            echo "source=repo keystore_b64.txt"
           else
             keytool -genkeypair -v -keystore app/keystore.jks -alias tunlian \
               -keyalg RSA -keysize 2048 -validity 10950 \
               -storepass tunlian2026 -keypass tunlian2026 \
               -dname "CN=TunLian, OU=App, O=TunLian, L=Beijing, S=Beijing, C=CN"
-            echo "首次构建，已自动生成签名文件（请在构建产物中下载保存）"
+            echo "source=GENERATED（警告：与已安装版本签名不同，会装不上）"
           fi
+          # 校验签名文件可用并把指纹打进摘要，方便和已安装的包比对
+          if ! keytool -list -keystore app/keystore.jks -storepass tunlian2026 -alias tunlian > /dev/null 2>&1; then
+            echo "::error::签名文件损坏或密码不对，构建终止"
+            exit 1
+          fi
+          echo "### 本次签名指纹（和手机里已装的版本必须一致才能覆盖升级）" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          keytool -list -v -keystore app/keystore.jks -storepass tunlian2026 -alias tunlian \
+            | grep -E "Certificate fingerprints|SHA1:|SHA256:|MD5:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Show SDK contents
         run: |

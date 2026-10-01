@@ -11,8 +11,8 @@ android {
         minSdk 26
         targetSdk 34
         // 每次出包必须 versionCode +1，否则老版本 APP 检测不到更新
-        versionCode 3
-        versionName "1.1.0"
+        versionCode 4
+        versionName "1.2.0"
     }
 
     signingConfigs {
