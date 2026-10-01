@@ -15,6 +15,12 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
+    <!-- 【2026-10-01】Android 11+ 包可见性：定向唤起微信/QQ 必须先声明，否则直接抛 ActivityNotFound -->
+    <queries>
+        <package android:name="com.tencent.mm" />
+        <package android:name="com.tencent.mobileqq" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:hardwareAccelerated="true"

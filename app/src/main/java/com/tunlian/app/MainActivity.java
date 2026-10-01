@@ -390,6 +390,63 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
+        /* ===== 【2026-10-01】定向唤起：点「微信」「QQ」直接拉起对方选好友界面，不再弹系统面板 ===== */
+
+        /** 直接唤起微信发给好友 */
+        @JavascriptInterface
+        public void shareToWeChat(final String text) {
+            shareToPackage("com.tencent.mm", "微信", text);
+        }
+
+        /** 直接唤起QQ发给好友 */
+        @JavascriptInterface
+        public void shareToQQ(final String text) {
+            shareToPackage("com.tencent.mobileqq", "QQ", text);
+        }
+
+        /**
+         * 朋友圈：微信未接入开放平台SDK前，系统无法自动往朋友圈填内容（微信官方限制）。
+         * 做法是：文案已由网页复制好，这里直接打开微信，用户手动进朋友圈粘贴发布。
+         * 接入微信开放SDK（需要开放平台 AppID）后可升级为全自动。
+         */
+        @JavascriptInterface
+        public void shareToMoments(final String text) {
+            runOnUiThread(() -> {
+                try {
+                    Intent i = getPackageManager().getLaunchIntentForPackage("com.tencent.mm");
+                    if (i == null) throw new IllegalStateException("wechat not installed");
+                    startActivity(i);
+                    Toast.makeText(MainActivity.this, "邀请文案已复制：进微信→发现→朋友圈→粘贴发布", Toast.LENGTH_LONG).show();
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "未检测到微信，请先安装", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        /** 定向分享文本到指定应用；没装则退回系统分享面板 */
+        private void shareToPackage(final String pkg, final String appName, final String text) {
+            runOnUiThread(() -> {
+                try {
+                    Intent send = new Intent(Intent.ACTION_SEND);
+                    send.setType("text/plain");
+                    send.putExtra(Intent.EXTRA_TEXT, text == null ? "" : text);
+                    send.setPackage(pkg);
+                    startActivity(send);
+                } catch (Exception e) {
+                    Log.w(TAG, "share to " + pkg + " failed", e);
+                    Toast.makeText(MainActivity.this, "未检测到" + appName + "，改用系统分享", Toast.LENGTH_SHORT).show();
+                    try {
+                        Intent send2 = new Intent(Intent.ACTION_SEND);
+                        send2.setType("text/plain");
+                        send2.putExtra(Intent.EXTRA_TEXT, text == null ? "" : text);
+                        startActivity(Intent.createChooser(send2, "分享到"));
+                    } catch (Exception e2) {
+                        Log.e(TAG, "fallback share error", e2);
+                    }
+                }
+            });
+        }
+
         /** 分享图片（data:image/png;base64,...），可附带文字 */
         @JavascriptInterface
         public void shareImage(final String dataUrl, final String text) {
