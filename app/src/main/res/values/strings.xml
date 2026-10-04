@@ -2,4 +2,35 @@
     <string name="app_name">豚链</string>
     <!-- APP 打开的网址，改这里即可 -->
     <string name="site_url">https://22.heitun.link/</string>
+
+    <!-- 【2026-10-04】原生会议页样式 -->
+    <style name="MeetCtrl">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <style name="MeetBtn">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:background">@drawable/bg_btn_dark</item>
+        <item name="android:textSize">17sp</item>
+    </style>
+
+    <style name="MeetBtnRed">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:background">@drawable/bg_btn_red</item>
+        <item name="android:textSize">17sp</item>
+    </style>
+
+    <style name="MeetLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:textColor">#C9CDD4</item>
+        <item name="android:textSize">11sp</item>
+    </style>
 </resources>

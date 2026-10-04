@@ -2,60 +2,65 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0f1620"
+    android:background="#101114"
     android:orientation="vertical">
 
-    <!-- 顶部：房间号 + 计时 + 返回 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:background="#16202c"
+        android:layout_height="56dp"
+        android:background="#17181A"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp">
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp">
 
         <Button
-            android:id="@+id/btnBack"
-            android:layout_width="48dp"
+            android:id="@+id/btnForward"
+            android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:background="@android:color/transparent"
-            android:text="‹"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:text="↗ 转发"
             android:textColor="#ffffff"
-            android:textSize="26sp" />
+            android:textSize="15sp" />
 
         <TextView
-            android:id="@+id/tvTitle"
+            android:id="@+id/tvRoom"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="32dp"
             android:layout_weight="1"
+            android:background="@drawable/bg_chip"
             android:gravity="center"
-            android:text="会议"
-            android:textColor="#ffffff"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvTimer"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="00:00"
-            android:textColor="#8fb7ff"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:text="TUN000000000"
+            android:textColor="#E8EAED"
             android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnLeave"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_btn_red"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="离开"
+            android:textColor="#ffffff"
+            android:textSize="15sp" />
     </LinearLayout>
 
-    <!-- 视频宫格：本地画面 + 远端画面，两列自动排布 -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:background="#000000">
 
-        <GridLayout
-            android:id="@+id/gridVideo"
+        <FrameLayout
+            android:id="@+id/videoStage"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:columnCount="2"
-            android:padding="0dp" />
+            android:layout_height="match_parent" />
 
         <TextView
             android:id="@+id/tvHint"
@@ -65,112 +70,120 @@
             android:text=""
             android:textColor="#9aa7b5"
             android:textSize="14sp" />
+
+        <FrameLayout
+            android:id="@+id/localBox"
+            android:layout_width="100dp"
+            android:layout_height="140dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="12dp"
+            android:background="#1b2430">
+
+            <com.tencent.rtmp.ui.TXCloudVideoView
+                android:id="@+id/localView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+        </FrameLayout>
+
+        <ScrollView
+            android:id="@+id/chatPanel"
+            android:layout_width="match_parent"
+            android:layout_height="180dp"
+            android:layout_gravity="bottom"
+            android:background="#B3000000"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/chatList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="10dp" />
+        </ScrollView>
     </FrameLayout>
 
-    <!-- 底部控制条 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#16202c"
-        android:gravity="center"
+        android:layout_height="50dp"
+        android:background="#17181A"
+        android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingTop="8dp"
-        android:paddingBottom="12dp">
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
 
         <Button
-            android:id="@+id/btnMic"
+            android:id="@+id/btnImg"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_btn_dark"
+            android:text="🖼"
+            android:textSize="16sp" />
+
+        <EditText
+            android:id="@+id/etChat"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:layout_marginEnd="3dp"
-            android:background="#22303f"
-            android:text="静音"
+            android:background="@drawable/bg_input"
+            android:hint="说点什么..."
+            android:imeOptions="actionSend"
+            android:inputType="text"
+            android:maxLines="1"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
             android:textColor="#ffffff"
-            android:textSize="13sp" />
+            android:textColorHint="#8A8F99"
+            android:textSize="14sp" />
 
         <Button
-            android:id="@+id/btnCam"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="3dp"
-            android:layout_marginEnd="3dp"
-            android:background="#22303f"
-            android:text="关摄像头"
+            android:id="@+id/btnSend"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_btn_blue"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:text="发送"
             android:textColor="#ffffff"
-            android:textSize="13sp" />
-
-        <Button
-            android:id="@+id/btnSpeaker"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="3dp"
-            android:layout_marginEnd="3dp"
-            android:background="#22303f"
-            android:text="扬声器"
-            android:textColor="#ffffff"
-            android:textSize="13sp" />
-
-        <Button
-            android:id="@+id/btnMembers"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="3dp"
-            android:layout_marginEnd="3dp"
-            android:background="#22303f"
-            android:text="成员"
-            android:textColor="#ffffff"
-            android:textSize="13sp" />
+            android:textSize="14sp" />
     </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#16202c"
-        android:gravity="center"
-        android:orientation="horizontal"
-        android:paddingBottom="14dp">
+        android:layout_height="88dp"
+        android:background="#17181A"
+        android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/btnRec"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:layout_marginEnd="3dp"
-            android:background="#2b4a6f"
-            android:text="云录制"
-            android:textColor="#ffffff"
-            android:textSize="13sp"
-            android:visibility="gone" />
+        <LinearLayout style="@style/MeetCtrl">
+            <Button android:id="@+id/btnMic" style="@style/MeetBtn" android:text="🎙" />
+            <TextView android:id="@+id/tvMic" style="@style/MeetLabel" android:text="解除" />
+        </LinearLayout>
 
-        <Button
-            android:id="@+id/btnEnd"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="3dp"
-            android:layout_marginEnd="3dp"
-            android:background="#8c2f2f"
-            android:text="结束会议"
-            android:textColor="#ffffff"
-            android:textSize="13sp"
-            android:visibility="gone" />
+        <LinearLayout style="@style/MeetCtrl">
+            <Button android:id="@+id/btnCam" style="@style/MeetBtn" android:text="📷" />
+            <TextView android:id="@+id/tvCam" style="@style/MeetLabel" android:text="视频" />
+        </LinearLayout>
 
-        <Button
-            android:id="@+id/btnLeave"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="3dp"
-            android:layout_marginEnd="6dp"
-            android:background="#5a2530"
-            android:text="离开"
-            android:textColor="#ffffff"
-            android:textSize="13sp" />
+        <LinearLayout style="@style/MeetCtrl">
+            <Button android:id="@+id/btnShare" style="@style/MeetBtn" android:text="🖥" />
+            <TextView style="@style/MeetLabel" android:text="共享" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/MeetCtrl">
+            <Button android:id="@+id/btnMembers" style="@style/MeetBtn" android:text="👥" />
+            <TextView style="@style/MeetLabel" android:text="成员" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/MeetCtrl">
+            <Button android:id="@+id/btnMore" style="@style/MeetBtn" android:text="⋯" />
+            <TextView style="@style/MeetLabel" android:text="更多" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/MeetCtrl">
+            <Button android:id="@+id/btnEnd" style="@style/MeetBtnRed" android:text="📵" />
+            <TextView style="@style/MeetLabel" android:text="结束" />
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>
