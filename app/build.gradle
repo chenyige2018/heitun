@@ -11,8 +11,13 @@ android {
         minSdk 26
         targetSdk 34
         // 每次出包必须 versionCode +1，否则老版本 APP 检测不到更新
-        versionCode 6
-        versionName "1.2.2"
+        versionCode 7
+        versionName "1.3.0"
+
+        /* 【2026-10-04】原生音视频 SDK 只保留手机主流架构，避免包体被 x86 撑大 */
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
     }
 
     signingConfigs {
@@ -44,9 +49,20 @@ android {
         abortOnError false
         checkReleaseBuilds false
     }
+
+    /* TRTC 的 so 体积大，按传统方式打包（不压缩）避免加载失败和解压占用 */
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        exclude 'META-INF/*.kotlin_module'
+    }
 }
 
 dependencies {
+    /* 【2026-10-04】腾讯 TRTC 原生 SDK：会议不再跑在网页里，走手机硬件回声消除 */
+    implementation 'com.tencent.liteav:LiteAVSDK_TRTC:12.9.0.19478'
+
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core:1.12.0'
     implementation 'androidx.activity:activity:1.8.0'

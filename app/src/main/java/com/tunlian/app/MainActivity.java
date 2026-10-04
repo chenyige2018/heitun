@@ -67,6 +67,50 @@ public class MainActivity extends AppCompatActivity {
     private Uri cameraUri;
     private long lastBackTime = 0;
 
+    /**
+     * 【2026-10-04】原生会议：进不去（未登录/网络异常）时 MeetingActivity 回传 RESULT_FALLBACK，
+     * 这里自动退回网页版会议，保证用户永远能开会
+     */
+    private final ActivityResultLauncher<Intent> meetingLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() != MeetingActivity.RESULT_FALLBACK) return;
+                Intent data = result.getData();
+                int roomId = data == null ? 0 : data.getIntExtra(MeetingActivity.EXTRA_ROOM_ID, 0);
+                if (roomId > 0) {
+                    webView.loadUrl(trimSlash(getString(R.string.site_url)) + "/meeting/" + roomId + ".html");
+                } else {
+                    webView.reload();
+                }
+            });
+
+    /** 打开原生会议页（网页里的会议链接、JS 都走这里） */
+    private void openNativeMeeting(int roomId) {
+        if (roomId <= 0) return;
+        try {
+            Intent i = new Intent(this, MeetingActivity.class);
+            i.putExtra(MeetingActivity.EXTRA_ROOM_ID, roomId);
+            meetingLauncher.launch(i);
+        } catch (Exception e) {
+            Log.w(TAG, "openNativeMeeting failed: " + e.getMessage());
+        }
+    }
+
+    private static String trimSlash(String s) {
+        if (s == null) return "";
+        String t = s.trim();
+        while (t.endsWith("/")) t = t.substring(0, t.length() - 1);
+        return t;
+    }
+
+    /** 从 /meeting/970136176.html 这类地址里取房间号 */
+    private int parseMeetingRoomId(Uri uri) {
+        if (uri == null) return 0;
+        String path = uri.getPath();
+        if (path == null) return 0;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("/meeting/(\\d+)").matcher(path);
+        return m.find() ? Integer.parseInt(m.group(1)) : 0;
+    }
+
     private final ActivityResultLauncher<Intent> fileChooserLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
                 if (filePathCallback == null) return;
@@ -194,6 +238,13 @@ public class MainActivity extends AppCompatActivity {
                 // 站外 http/https 用系统浏览器打开，避免被第三方页面劫持壳
                 if (!isMyHost(uri.getHost())) {
                     return openInBrowser(uri);
+                }
+                /* 【2026-10-04】站内会议链接 → 直接开原生会议页（不进网页，杜绝啸叫）
+                   进不去时 MeetingActivity 会回传 RESULT_FALLBACK，自动退回网页版 */
+                int roomId = parseMeetingRoomId(uri);
+                if (roomId > 0) {
+                    openNativeMeeting(roomId);
+                    return true;
                 }
                 return false;
             }
@@ -408,6 +459,19 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void setMeetingAudio(final boolean on) {
             runOnUiThread(() -> setMeetingAudioMode(on));
+        }
+
+        /** 【2026-10-04】网页主动唤起原生会议页：window.TunLianApp.openNativeMeeting(970136176) */
+        @JavascriptInterface
+        public void openNativeMeeting(final String roomId) {
+            int id = 0;
+            try {
+                id = Integer.parseInt(String.valueOf(roomId).trim());
+            } catch (Exception e) {
+                id = 0;
+            }
+            final int finalId = id;
+            runOnUiThread(() -> openNativeMeeting(finalId));
         }
 
         /** 分享文本/链接，弹出系统分享面板（微信、QQ、本 APP 均可选择） */
