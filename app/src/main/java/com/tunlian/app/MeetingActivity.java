@@ -278,7 +278,7 @@ public class MeetingActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onRecvCustomCmdMsg(String userId, byte[] message, int seq) {
+        public void onRecvCustomCmdMsg(String userId, int cmdId, int seq, byte[] message) {
             try {
                 JSONObject d = new JSONObject(new String(message, StandardCharsets.UTF_8));
                 handleCustomMessage(d);
@@ -288,12 +288,12 @@ public class MeetingActivity extends AppCompatActivity {
         }
     };
 
-    /* ==================== 自定义消息（与网页端互通） ==================== */
+    /* ==================== 自定义消息（与网页端互通，cmdId 固定 1） ==================== */
 
     private void sendCustom(JSONObject d) {
         if (trtc == null || !inRoom) return;
         try {
-            trtc.sendCustomCmdMsg(d.toString().getBytes(StandardCharsets.UTF_8), true, false);
+            trtc.sendCustomCmdMsg(1, d.toString().getBytes(StandardCharsets.UTF_8), true, false);
         } catch (Exception e) {
             Log.w(TAG, "sendCustom failed: " + e.getMessage());
         }
