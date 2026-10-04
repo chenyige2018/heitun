@@ -278,7 +278,7 @@ public class MeetingActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onRecvCustomMessage(String userId, byte[] message) {
+        public void onRecvCustomCmdMsg(String userId, byte[] message, int seq) {
             try {
                 JSONObject d = new JSONObject(new String(message, StandardCharsets.UTF_8));
                 handleCustomMessage(d);
@@ -293,7 +293,7 @@ public class MeetingActivity extends AppCompatActivity {
     private void sendCustom(JSONObject d) {
         if (trtc == null || !inRoom) return;
         try {
-            trtc.sendCustomMessage(d.toString().getBytes(StandardCharsets.UTF_8), true);
+            trtc.sendCustomCmdMsg(d.toString().getBytes(StandardCharsets.UTF_8), true, false);
         } catch (Exception e) {
             Log.w(TAG, "sendCustom failed: " + e.getMessage());
         }
