@@ -9,6 +9,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioManager;
 import android.media.MediaScannerConnection;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -60,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
     private ProgressBar progressBar;
     private View errorView;
     private UpdateManager updateManager;
+    private AudioManager audioManager;
 
     private ValueCallback<Uri[]> filePathCallback;
     private Uri cameraUri;
@@ -132,6 +134,30 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 【2026-10-04】会议抗啸叫：切到通话音频通道（MODE_IN_COMMUNICATION）
+     * 网页(WebView)里的 WebRTC 回声消除时灵时不灵，音量大就尖叫。
+     * 由壳进程把音频模式切到通话通道，可触发手机硬件 AEC；同时保持外放，不改变使用习惯。
+     */
+    private void setMeetingAudioMode(boolean on) {
+        try {
+            if (audioManager == null) {
+                audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            }
+            if (audioManager == null) return;
+            if (on) {
+                audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                audioManager.setSpeakerphoneOn(true);   // 仍然是外放，只是走通话通道
+            } else {
+                audioManager.setSpeakerphoneOn(false);
+                audioManager.setMode(AudioManager.MODE_NORMAL);
+            }
+            Log.i(TAG, "setMeetingAudioMode on=" + on);
+        } catch (Exception e) {
+            Log.w(TAG, "setMeetingAudioMode failed: " + e.getMessage());
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
         WebSettings settings = webView.getSettings();
@@ -176,6 +202,9 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 errorView.setVisibility(View.GONE);
                 webView.setVisibility(View.VISIBLE);
+                /* 【2026-10-04】会议页切到通话音频通道：启用手机硬件回声消除(AEC)，
+                   解决多人会议开外放时的啸叫；离开会议页再切回普通媒体通道 */
+                setMeetingAudioMode(url != null && url.contains("/meeting"));
             }
 
             @Override
@@ -374,6 +403,12 @@ public class MainActivity extends AppCompatActivity {
 
     /** 网页 JS 桥：转发分享、保存图片 */
     private class JsBridge {
+
+        /** 【2026-10-04】会议页主动开关通话音频通道（进房开、退房关） */
+        @JavascriptInterface
+        public void setMeetingAudio(final boolean on) {
+            runOnUiThread(() -> setMeetingAudioMode(on));
+        }
 
         /** 分享文本/链接，弹出系统分享面板（微信、QQ、本 APP 均可选择） */
         @JavascriptInterface
