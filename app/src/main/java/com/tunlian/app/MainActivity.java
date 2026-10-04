@@ -471,7 +471,8 @@ public class MainActivity extends AppCompatActivity {
                 id = 0;
             }
             final int finalId = id;
-            runOnUiThread(() -> openNativeMeeting(finalId));
+            /* 必须显式指到外部类：这里直接写 openNativeMeeting 会递归调到本桥接方法（参数是 String） */
+            runOnUiThread(() -> MainActivity.this.openNativeMeeting(finalId));
         }
 
         /** 分享文本/链接，弹出系统分享面板（微信、QQ、本 APP 均可选择） */
