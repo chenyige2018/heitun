@@ -519,7 +519,7 @@ public class MeetingActivity extends AppCompatActivity {
             cell.setLayoutParams(lp);
             cell.setOnClickListener(v -> {
                 if (moreDialog != null) moreDialog.dismiss();
-                handleMoreAction(it[2]);
+                handleMoreAction((String) it[2]);
             });
             grid.addView(cell);
         }
