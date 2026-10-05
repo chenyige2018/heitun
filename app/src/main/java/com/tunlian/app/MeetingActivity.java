@@ -21,6 +21,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.GridLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -494,23 +495,24 @@ public class MeetingActivity extends AppCompatActivity {
 
         GridLayout grid = new GridLayout(this);
         grid.setColumnCount(5);
-        String[][] items = {
-                {"👤+", "邀请", "invite"},
-                {"💬", "聊天", "chat"},
-                {"🛡", "主持人工具", "host"},
-                {"🔇", "断开音频", "mute"},
-                {"▣", "浮窗显示", "none"},
-                {"✍", "签到", "checkin"},
-                {"☕", "休息一下", "break"},
-                {"⏺", "云录制", "rec"},
-                {"☰", "云录制回放", "replay"},
-                {"📝", "开启字幕", "none"},
-                {"📋", "豚链纪要", "ai"},
+        /* 图标统一用白色线描矢量图（res/drawable/ic_more_*.xml），黑白风格 */
+        Object[][] items = {
+                {R.drawable.ic_more_invite, "邀请", "invite"},
+                {R.drawable.ic_more_chat, "聊天", "chat"},
+                {R.drawable.ic_more_host, "主持人", "host"},
+                {R.drawable.ic_more_mute, "断开音频", "mute"},
+                {R.drawable.ic_more_float, "浮窗显示", "none"},
+                {R.drawable.ic_more_checkin, "签到", "checkin"},
+                {R.drawable.ic_more_break, "休息一下", "break"},
+                {R.drawable.ic_more_rec, "云录制", "rec"},
+                {R.drawable.ic_more_replay, "云录制回放", "replay"},
+                {R.drawable.ic_more_sub, "开启字幕", "none"},
+                {R.drawable.ic_more_ai, "豚链纪要", "ai"},
         };
-        for (String[] it : items) {
+        for (Object[] it : items) {
             boolean enabled = !"none".equals(it[2]);
             if ("host".equals(it[2]) && !isHost) enabled = false;
-            View cell = buildMoreCell(it[0], it[1], enabled, dpi);
+            View cell = buildMoreCell((Integer) it[0], (String) it[1], enabled, dpi);
             GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
             lp.width = screenW / 5;
             lp.height = 96 * dpi;
@@ -605,14 +607,14 @@ public class MeetingActivity extends AppCompatActivity {
         }
     }
 
-    private View buildMoreCell(String icon, String label, boolean enabled, int dpi) {
+    private View buildMoreCell(int iconRes, String label, boolean enabled, int dpi) {
         LinearLayout cell = new LinearLayout(this);
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setGravity(Gravity.CENTER);
-        TextView ic = new TextView(this);
-        ic.setText(icon);
-        ic.setTextSize(18);
-        ic.setGravity(Gravity.CENTER);
+        ImageView ic = new ImageView(this);
+        ic.setImageResource(iconRes);
+        int ip = 11 * dpi;
+        ic.setPadding(ip, ip, ip, ip);
         ic.setBackgroundResource(R.drawable.bg_btn_dark);
         LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(48 * dpi, 48 * dpi);
         ic.setLayoutParams(ilp);
