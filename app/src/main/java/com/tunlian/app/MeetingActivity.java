@@ -481,17 +481,21 @@ public class MeetingActivity extends AppCompatActivity {
     /* ==================== 更多面板 ==================== */
 
     private void showMorePanel() {
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        int pad = (int) (14 * getResources().getDisplayMetrics().density);
         int dpi = (int) getResources().getDisplayMetrics().density;
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+
+        /* 全屏深色面板：盖住整个会议画面（含顶栏和控制条） */
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#1C1E22"));
+        root.setBackgroundColor(Color.parseColor("#EE15171A"));
         root.setPadding(pad, pad, pad, pad);
+        root.setClickable(true);
 
         GridLayout grid = new GridLayout(this);
-        grid.setColumnCount(4);
+        grid.setColumnCount(5);
         String[][] items = {
-                {"+", "邀请", "invite"},
+                {"👤+", "邀请", "invite"},
                 {"💬", "聊天", "chat"},
                 {"🛡", "主持人工具", "host"},
                 {"🔇", "断开音频", "mute"},
@@ -508,8 +512,8 @@ public class MeetingActivity extends AppCompatActivity {
             if ("host".equals(it[2]) && !isHost) enabled = false;
             View cell = buildMoreCell(it[0], it[1], enabled, dpi);
             GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-            lp.width = getResources().getDisplayMetrics().widthPixels / 4 - pad / 2;
-            lp.height = 86 * dpi;
+            lp.width = screenW / 5;
+            lp.height = 96 * dpi;
             cell.setLayoutParams(lp);
             cell.setOnClickListener(v -> {
                 if (moreDialog != null) moreDialog.dismiss();
@@ -518,26 +522,57 @@ public class MeetingActivity extends AppCompatActivity {
             grid.addView(cell);
         }
         root.addView(grid);
+
+        /* 中部留白，把互动区压到底部（对齐腾讯会议布局） */
+        View spacer = new View(this);
+        LinearLayout.LayoutParams splp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        spacer.setLayoutParams(splp);
+        root.addView(spacer);
+
+        /* 举手：宽按钮 */
+        Button hand = new Button(this);
+        hand.setText("✋ 举手");
+        hand.setTextColor(Color.WHITE);
+        hand.setTextSize(15);
+        hand.setAllCaps(false);
+        hand.setBackgroundResource(R.drawable.bg_btn_dark);
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 48 * dpi);
+        hand.setLayoutParams(hlp);
+        hand.setOnClickListener(v -> {
+            if (moreDialog != null) moreDialog.dismiss();
+            JSONObject d = new JSONObject();
+            try {
+                d.put("t", "react");
+                d.put("k", "hand");
+                d.put("name", selfName);
+            } catch (Exception ignored) {
+            }
+            sendCustom(d);
+            Toast.makeText(this, "已举手", Toast.LENGTH_SHORT).show();
+        });
+        root.addView(hand);
+
+        /* 表情行 */
         LinearLayout reactRow = new LinearLayout(this);
         reactRow.setOrientation(LinearLayout.HORIZONTAL);
         reactRow.setGravity(Gravity.CENTER);
         reactRow.setPadding(0, pad, 0, 0);
-        String[] reacts = {"✋", "👏", "👍", "🌹", "😍", "😡", "💪"};
+        String[] reacts = {"👏", "👍", "🌹", "😍", "😡", "💪"};
         for (String r : reacts) {
-            Button b = new Button(this);
+            TextView b = new TextView(this);
             b.setText(r);
-            b.setTextSize(16);
-            b.setTextColor(Color.WHITE);
-            b.setBackgroundResource(R.drawable.bg_btn_dark);
+            b.setTextSize(24);
+            b.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, 44 * dpi, 1);
-            lp.setMargins(4, 0, 4, 0);
             b.setLayoutParams(lp);
             b.setOnClickListener(v -> {
                 if (moreDialog != null) moreDialog.dismiss();
                 JSONObject d = new JSONObject();
                 try {
                     d.put("t", "react");
-                    d.put("k", "✋".equals(r) ? "hand" : r);
+                    d.put("k", r);
                     d.put("name", selfName);
                 } catch (Exception ignored) {
                 }
@@ -548,15 +583,13 @@ public class MeetingActivity extends AppCompatActivity {
         }
         root.addView(reactRow);
 
-        Button cancel = new Button(this);
+        /* 取消：纯文字 */
+        TextView cancel = new TextView(this);
         cancel.setText("取消");
-        cancel.setTextColor(Color.WHITE);
-        cancel.setTextSize(15);
-        cancel.setBackgroundResource(R.drawable.bg_btn_dark);
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 44 * dpi);
-        clp.topMargin = pad;
-        cancel.setLayoutParams(clp);
+        cancel.setTextColor(Color.parseColor("#8A9099"));
+        cancel.setTextSize(14);
+        cancel.setGravity(Gravity.CENTER);
+        cancel.setPadding(0, pad, 0, (int) (8 * getResources().getDisplayMetrics().density));
         cancel.setOnClickListener(v -> {
             if (moreDialog != null) moreDialog.dismiss();
         });
@@ -564,6 +597,12 @@ public class MeetingActivity extends AppCompatActivity {
 
         moreDialog = new AlertDialog.Builder(this).setView(root).create();
         moreDialog.show();
+        /* 铺满全屏：默认 AlertDialog 只包内容，这里强制 MATCH_PARENT */
+        if (moreDialog.getWindow() != null) {
+            moreDialog.getWindow().setLayout(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            moreDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
     }
 
     private View buildMoreCell(String icon, String label, boolean enabled, int dpi) {
@@ -572,16 +611,21 @@ public class MeetingActivity extends AppCompatActivity {
         cell.setGravity(Gravity.CENTER);
         TextView ic = new TextView(this);
         ic.setText(icon);
-        ic.setTextSize(22);
+        ic.setTextSize(18);
         ic.setGravity(Gravity.CENTER);
         ic.setBackgroundResource(R.drawable.bg_btn_dark);
-        ic.setLayoutParams(new LinearLayout.LayoutParams(48 * dpi, 44 * dpi));
-        if (!enabled) ic.setAlpha(0.4f);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(48 * dpi, 48 * dpi);
+        ic.setLayoutParams(ilp);
+        if (!enabled) ic.setAlpha(0.35f);
         TextView lb = new TextView(this);
         lb.setText(label);
-        lb.setTextSize(11);
+        lb.setTextSize(12);
+        lb.setGravity(Gravity.CENTER);
         lb.setTextColor(enabled ? Color.parseColor("#C9CDD4") : Color.parseColor("#5A6068"));
-        lb.setPadding(0, 6, 0, 0);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        llp.topMargin = 8 * dpi;
+        lb.setLayoutParams(llp);
         cell.addView(ic);
         cell.addView(lb);
         return cell;
