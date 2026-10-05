@@ -494,7 +494,7 @@ public class MeetingActivity extends AppCompatActivity {
         root.setClickable(true);
 
         GridLayout grid = new GridLayout(this);
-        grid.setColumnCount(5);
+        grid.setColumnCount(4);
         /* 图标统一用白色线描矢量图（res/drawable/ic_more_*.xml），黑白风格 */
         Object[][] items = {
                 {R.drawable.ic_more_invite, "邀请", "invite"},
@@ -514,7 +514,7 @@ public class MeetingActivity extends AppCompatActivity {
             if ("host".equals(it[2]) && !isHost) enabled = false;
             View cell = buildMoreCell((Integer) it[0], (String) it[1], enabled, dpi);
             GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-            lp.width = screenW / 5;
+            lp.width = screenW / 4;
             lp.height = 96 * dpi;
             cell.setLayoutParams(lp);
             cell.setOnClickListener(v -> {
