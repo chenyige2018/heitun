@@ -505,7 +505,7 @@ public class MeetingActivity extends AppCompatActivity {
                 {R.drawable.ic_more_checkin, "签到", "checkin"},
                 {R.drawable.ic_more_break, "休息一下", "break"},
                 {R.drawable.ic_more_rec, "云录制", "rec"},
-                {R.drawable.ic_more_replay, "云录制回放", "replay"},
+                {R.drawable.ic_more_replay, "录制回放", "replay"},
                 {R.drawable.ic_more_sub, "开启字幕", "none"},
                 {R.drawable.ic_more_ai, "豚链纪要", "ai"},
         };
