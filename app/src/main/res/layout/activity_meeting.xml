@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#101114"
@@ -100,6 +101,28 @@
                 android:orientation="vertical"
                 android:padding="10dp" />
         </ScrollView>
+
+        <!-- 【2026-10-05】实时字幕条：识别结果 + 会议内其它人的字幕都显示在这里 -->
+        <TextView
+            android:id="@+id/tvSubtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="128dp"
+            android:layout_marginBottom="16dp"
+            android:background="#CC000000"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="2"
+            android:paddingStart="10dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="6dp"
+            android:text=""
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:visibility="gone" />
     </FrameLayout>
 
     <LinearLayout

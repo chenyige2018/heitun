@@ -3,16 +3,24 @@ package com.tunlian.app;
 import android.Manifest;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
+import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.Color;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Base64;
 import android.util.Log;
+import android.util.Rational;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -29,6 +37,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 import com.tencent.rtmp.ui.TXCloudVideoView;
 import com.tencent.trtc.TRTCCloud;
@@ -77,6 +86,8 @@ public class MeetingActivity extends AppCompatActivity {
     private boolean speakerOn = true;
     private boolean inRoom = false;
     private boolean recording = false;
+    private boolean subOn = false;          /* 【2026-10-05】实时字幕开关 */
+    private volatile boolean subRunning = false;
 
     private TRTCCloud trtc;
     private FrameLayout videoStage;
@@ -88,6 +99,10 @@ public class MeetingActivity extends AppCompatActivity {
     private EditText etChat;
     private LinearLayout chatList;
     private ScrollView chatPanel;
+    private LinearLayout rootLayout;
+    private TextView tvSubtitle;
+    private AudioRecord audioRecord;
+    private Thread subThread;
     private AlertDialog loadingDialog;
     private AlertDialog moreDialog;
     private Handler handler;
@@ -129,6 +144,8 @@ public class MeetingActivity extends AppCompatActivity {
         etChat = findViewById(R.id.etChat);
         chatList = findViewById(R.id.chatList);
         chatPanel = findViewById(R.id.chatPanel);
+        rootLayout = findViewById(R.id.rootLayout);
+        tvSubtitle = findViewById(R.id.tvSubtitle);
 
         TextView tvRoom = findViewById(R.id.tvRoom);
         tvRoom.setText("TUN" + roomId);
@@ -331,6 +348,9 @@ public class MeetingActivity extends AppCompatActivity {
                     Toast.makeText(this, "主持人让大家休息 " + d.optInt("min", 5) + " 分钟",
                             Toast.LENGTH_SHORT).show();
                     break;
+                case "sub":
+                    showSubtitle(name, d.optString("txt", ""));
+                    break;
                 case "host_mute":
                     if (d.optInt("on", 1) == 1 && micOn) {
                         micOn = false;
@@ -485,6 +505,8 @@ public class MeetingActivity extends AppCompatActivity {
         int pad = (int) (14 * getResources().getDisplayMetrics().density);
         int dpi = (int) getResources().getDisplayMetrics().density;
         int screenW = getResources().getDisplayMetrics().widthPixels;
+        /* 格子宽度按“减去左右内边距后的可用宽度”算，否则 4 列会挤到屏幕外，最后一列文字被裁 */
+        int cellW = (screenW - 2 * pad) / 4;
 
         /* 全屏深色面板：盖住整个会议画面（含顶栏和控制条） */
         LinearLayout root = new LinearLayout(this);
@@ -501,12 +523,12 @@ public class MeetingActivity extends AppCompatActivity {
                 {R.drawable.ic_more_chat, "聊天", "chat"},
                 {R.drawable.ic_more_host, "主持人", "host"},
                 {R.drawable.ic_more_mute, "断开音频", "mute"},
-                {R.drawable.ic_more_float, "浮窗显示", "none"},
+                {R.drawable.ic_more_float, "浮窗显示", "pip"},
                 {R.drawable.ic_more_checkin, "签到", "checkin"},
                 {R.drawable.ic_more_break, "休息一下", "break"},
                 {R.drawable.ic_more_rec, "云录制", "rec"},
                 {R.drawable.ic_more_replay, "录制回放", "replay"},
-                {R.drawable.ic_more_sub, "开启字幕", "none"},
+                {R.drawable.ic_more_sub, "开启字幕", "sub"},
                 {R.drawable.ic_more_ai, "豚链纪要", "ai"},
         };
         for (Object[] it : items) {
@@ -514,7 +536,7 @@ public class MeetingActivity extends AppCompatActivity {
             if ("host".equals(it[2]) && !isHost) enabled = false;
             View cell = buildMoreCell((Integer) it[0], (String) it[1], enabled, dpi);
             GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-            lp.width = screenW / 4;
+            lp.width = cellW;
             lp.height = 96 * dpi;
             cell.setLayoutParams(lp);
             cell.setOnClickListener(v -> {
@@ -632,6 +654,219 @@ public class MeetingActivity extends AppCompatActivity {
         cell.addView(lb);
         return cell;
     }
+    /* ==================== 浮窗显示（系统画中画，无需悬浮窗权限） ==================== */
+
+    private void enterPip() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+                || !getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            /* 不支持画中画就退到后台，音视频照常进行，不会挂断 */
+            moveTaskToBack(true);
+            Toast.makeText(this, "已缩到后台，会议继续进行", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            PictureInPictureParams p = new PictureInPictureParams.Builder()
+                    .setAspectRatio(new Rational(9, 16))
+                    .build();
+            enterPictureInPictureMode(p);
+        } catch (Exception e) {
+            Toast.makeText(this, "浮窗启动失败：" + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPip, Configuration newConfig) {
+        super.onPictureInPictureModeChanged(isInPip, newConfig);
+        if (rootLayout == null) return;
+        if (isInPip) {
+            /* 浮窗里只保留第 1 个子视图（视频区），顶栏/输入栏/控制条全部隐藏 */
+            for (int i = 0; i < rootLayout.getChildCount(); i++) {
+                rootLayout.getChildAt(i).setVisibility(i == 1 ? View.VISIBLE : View.GONE);
+            }
+        } else {
+            for (int i = 0; i < rootLayout.getChildCount(); i++) {
+                rootLayout.getChildAt(i).setVisibility(View.VISIBLE);
+            }
+            chatPanel.setVisibility(View.GONE);
+            tvSubtitle.setVisibility(subOn ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /* ==================== 实时字幕（本地麦克风分片识别 + 广播给全员） ==================== */
+
+    private void toggleSubtitle() {
+        if (subOn) {
+            stopSubtitle();
+        } else {
+            startSubtitle();
+        }
+    }
+
+    private void startSubtitle() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "没有录音权限，无法开启字幕", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final int rate = 16000;
+        int min = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT);
+        if (min <= 0) {
+            Toast.makeText(this, "字幕启动失败：音频参数不支持", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final int bufSize = Math.max(min, rate * 2);
+        AudioRecord rec = null;
+        try {
+            rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, rate,
+                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufSize);
+        } catch (Exception e) {
+            rec = null;
+        }
+        if (rec == null || rec.getState() != AudioRecord.STATE_INITIALIZED) {
+            if (rec != null) {
+                rec.release();
+                rec = null;
+            }
+            try {
+                rec = new AudioRecord(MediaRecorder.AudioSource.MIC, rate,
+                        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufSize);
+            } catch (Exception e) {
+                rec = null;
+            }
+        }
+        if (rec == null || rec.getState() != AudioRecord.STATE_INITIALIZED) {
+            Toast.makeText(this, "字幕启动失败：麦克风被占用", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        audioRecord = rec;
+        audioRecord.startRecording();
+        subOn = true;
+        subRunning = true;
+        tvSubtitle.setText("");
+        tvSubtitle.setVisibility(View.VISIBLE);
+
+        final int chunkBytes = rate * 2 * 4;      /* 每 4 秒识别一次 */
+        final int readBytes = rate;               /* 每次读 0.5 秒 */
+        subThread = new Thread(() -> {
+            byte[] acc = new byte[chunkBytes];
+            int filled = 0;
+            byte[] tmp = new byte[readBytes];
+            while (subRunning && audioRecord != null) {
+                int n;
+                try {
+                    n = audioRecord.read(tmp, 0, tmp.length);
+                } catch (Exception e) {
+                    break;
+                }
+                if (n <= 0) continue;
+                int take = Math.min(n, chunkBytes - filled);
+                System.arraycopy(tmp, 0, acc, filled, take);
+                filled += take;
+                if (filled >= chunkBytes) {
+                    final byte[] wav = pcmToWav(acc, rate);
+                    filled = 0;
+                    asrChunk(wav);
+                }
+            }
+        }, "subtitle-recorder");
+        subThread.start();
+        Toast.makeText(this, "字幕已开启（识别你的讲话，全会议室可见）", Toast.LENGTH_SHORT).show();
+    }
+
+    private void stopSubtitle() {
+        stopSubtitleSilent();
+        if (tvSubtitle != null) tvSubtitle.setVisibility(View.GONE);
+        Toast.makeText(this, "字幕已关闭", Toast.LENGTH_SHORT).show();
+    }
+
+    /** 静默停止（离开会议 / 退后台时用，不弹提示） */
+    private void stopSubtitleSilent() {
+        subRunning = false;
+        subOn = false;
+        if (subThread != null) {
+            subThread.interrupt();
+            subThread = null;
+        }
+        if (audioRecord != null) {
+            try {
+                audioRecord.stop();
+            } catch (Exception ignored) {
+            }
+            audioRecord.release();
+            audioRecord = null;
+        }
+    }
+
+    /** 把一个 4 秒的音频分片送服务器识别，识别结果本地显示并广播给会议室其他人 */
+    private void asrChunk(byte[] wav) {
+        Map<String, String> p = new LinkedHashMap<>();
+        p.put("audio", Base64.encodeToString(wav, Base64.NO_WRAP));
+        http("POST", "/index.php/index/asr/live.html", p, (resp, err) -> {
+            if (resp == null || resp.optInt("code", 1) != 0) return;
+            JSONObject data = resp.optJSONObject("data");
+            if (data == null) return;
+            String txt = data.optString("text", "").trim();
+            if (txt.isEmpty()) return;
+            showSubtitle(selfName.isEmpty() ? "我" : selfName, txt);
+            JSONObject d = new JSONObject();
+            try {
+                d.put("t", "sub");
+                d.put("name", selfName);
+                d.put("txt", txt);
+            } catch (Exception ignored) {
+            }
+            sendCustom(d);
+        });
+    }
+
+    /** 字幕：同时推进聊天室（可随时回看文字）和底部字幕条 */
+    private void showSubtitle(String name, String txt) {
+        if (txt == null || txt.isEmpty()) return;
+        appendChat(name, "🎙 " + txt);
+        if (tvSubtitle != null) {
+            tvSubtitle.setVisibility(View.VISIBLE);
+            tvSubtitle.setText(name + "：" + txt);
+        }
+    }
+
+    /** 裸 PCM(16bit 单声道) 封装成 WAV，云端识别只认带头的音频 */
+    private static byte[] pcmToWav(byte[] pcm, int sampleRate) {
+        int total = pcm.length;
+        byte[] wav = new byte[44 + total];
+        writeAscii(wav, 0, "RIFF");
+        writeInt(wav, 4, 36 + total);
+        writeAscii(wav, 8, "WAVE");
+        writeAscii(wav, 12, "fmt ");
+        writeInt(wav, 16, 16);
+        writeShort(wav, 20, (short) 1);
+        writeShort(wav, 22, (short) 1);
+        writeInt(wav, 24, sampleRate);
+        writeInt(wav, 28, sampleRate * 2);
+        writeShort(wav, 32, (short) 2);
+        writeShort(wav, 34, (short) 16);
+        writeAscii(wav, 36, "data");
+        writeInt(wav, 40, total);
+        System.arraycopy(pcm, 0, wav, 44, total);
+        return wav;
+    }
+
+    private static void writeAscii(byte[] b, int off, String s) {
+        for (int i = 0; i < s.length(); i++) b[off + i] = (byte) s.charAt(i);
+    }
+
+    private static void writeInt(byte[] b, int off, int v) {
+        b[off] = (byte) (v & 0xff);
+        b[off + 1] = (byte) ((v >> 8) & 0xff);
+        b[off + 2] = (byte) ((v >> 16) & 0xff);
+        b[off + 3] = (byte) ((v >> 24) & 0xff);
+    }
+
+    private static void writeShort(byte[] b, int off, short v) {
+        b[off] = (byte) (v & 0xff);
+        b[off + 1] = (byte) ((v >> 8) & 0xff);
+    }
+
     private void handleMoreAction(String action) {
         switch (action) {
             case "invite":
@@ -645,6 +880,12 @@ public class MeetingActivity extends AppCompatActivity {
                 break;
             case "mute":
                 toggleMic();
+                break;
+            case "pip":
+                enterPip();
+                break;
+            case "sub":
+                toggleSubtitle();
                 break;
             case "checkin": {
                 checkinCount = 0;
@@ -991,6 +1232,7 @@ public class MeetingActivity extends AppCompatActivity {
 
     private void exitAll() {
         inRoom = false;
+        stopSubtitleSilent();
         handler.removeCallbacks(heartbeatTask);
         Map<String, String> p = new LinkedHashMap<>();
         p.put("roomId", String.valueOf(roomId));
