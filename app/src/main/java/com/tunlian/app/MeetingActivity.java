@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
@@ -21,6 +22,7 @@ import android.os.Looper;
 import android.util.Base64;
 import android.util.Log;
 import android.util.Rational;
+import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -48,8 +50,10 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -72,6 +76,8 @@ public class MeetingActivity extends AppCompatActivity {
 
     private static final String TAG = "MeetingNative";
     private static final int REQ_PERM = 2001;
+    private static final int REQ_IMG = 2002;
+    private static final int REQ_IMG_PERM = 2003;
 
     private String base = "https://22.heitun.link";
     private int roomId = 0;
@@ -88,6 +94,7 @@ public class MeetingActivity extends AppCompatActivity {
     private boolean recording = false;
     private boolean subOn = false;          /* 【2026-10-05】实时字幕开关 */
     private volatile boolean subRunning = false;
+    private boolean sharing = false;        /* 【2026-10-06】屏幕共享中 */
 
     private TRTCCloud trtc;
     private FrameLayout videoStage;
@@ -154,14 +161,12 @@ public class MeetingActivity extends AppCompatActivity {
         findViewById(R.id.btnLeave).setOnClickListener(v -> leaveRoom());
         findViewById(R.id.btnMic).setOnClickListener(v -> toggleMic());
         findViewById(R.id.btnCam).setOnClickListener(v -> toggleCam());
-        findViewById(R.id.btnShare).setOnClickListener(v ->
-                Toast.makeText(this, "屏幕共享开发中，下一版上线", Toast.LENGTH_SHORT).show());
+        findViewById(R.id.btnShare).setOnClickListener(v -> toggleScreenShare());
         findViewById(R.id.btnMembers).setOnClickListener(v -> showMembers());
         findViewById(R.id.btnMore).setOnClickListener(v -> showMorePanel());
         findViewById(R.id.btnEnd).setOnClickListener(v -> confirmEndMeeting());
         findViewById(R.id.btnSend).setOnClickListener(v -> sendChatText());
-        findViewById(R.id.btnImg).setOnClickListener(v ->
-                Toast.makeText(this, "图片聊天即将支持，先发文字吧", Toast.LENGTH_SHORT).show());
+        findViewById(R.id.btnImg).setOnClickListener(v -> pickChatImage());
         etChat.setOnEditorActionListener((v, actionId, event) -> {
             sendChatText();
             return true;
@@ -350,6 +355,9 @@ public class MeetingActivity extends AppCompatActivity {
                     break;
                 case "sub":
                     showSubtitle(name, d.optString("txt", ""));
+                    break;
+                case "img":
+                    appendChatImage(name, d.optString("url", ""));
                     break;
                 case "host_mute":
                     if (d.optInt("on", 1) == 1 && micOn) {
@@ -654,6 +662,182 @@ public class MeetingActivity extends AppCompatActivity {
         cell.addView(lb);
         return cell;
     }
+    /* ==================== 屏幕共享（TRTC 屏幕采集，走主流，其他人自动看到） ==================== */
+
+    private void toggleScreenShare() {
+        if (trtc == null || !inRoom) {
+            Toast.makeText(this, "进会后才能共享屏幕", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (sharing) {
+            stopScreenShare();
+        } else {
+            startScreenShare();
+        }
+    }
+
+    private void startScreenShare() {
+        TRTCCloudDef.TRTCVideoEncParam enc = new TRTCCloudDef.TRTCVideoEncParam();
+        enc.videoResolution = TRTCCloudDef.TRTC_VIDEO_RESOLUTION_1280_720;
+        enc.videoResolutionMode = TRTCCloudDef.TRTC_VIDEO_RESOLUTION_MODE_PORTRAIT;
+        enc.videoFps = 10;
+        enc.videoBitrate = 1600;
+        enc.enableAdjustRes = false;
+
+        String err = "";
+        boolean ok = false;
+        try {
+            /* Android 屏幕共享占用主流，先停掉摄像头预览，避免两路主流打架 */
+            trtc.stopLocalPreview();
+            /* 新版 SDK：startScreenCapture(encParams) */
+            Method m = TRTCCloud.class.getMethod("startScreenCapture", TRTCCloudDef.TRTCVideoEncParam.class);
+            m.invoke(trtc, enc);
+            ok = true;
+        } catch (NoSuchMethodException e) {
+            try {
+                /* 旧版 SDK：startScreenCapture(streamType, encParams, screenShareParams) */
+                Class<?> pCls = Class.forName("com.tencent.trtc.TRTCCloudDef$TRTCScreenShareParams");
+                Method m2 = TRTCCloud.class.getMethod("startScreenCapture", int.class,
+                        TRTCCloudDef.TRTCVideoEncParam.class, pCls);
+                m2.invoke(trtc, TRTCCloudDef.TRTC_VIDEO_STREAM_TYPE_BIG, enc, pCls.newInstance());
+                ok = true;
+            } catch (Exception e2) {
+                err = String.valueOf(e2.getMessage());
+            }
+        } catch (Exception e) {
+            err = String.valueOf(e.getMessage());
+        }
+        if (!ok) {
+            Toast.makeText(this, "屏幕共享启动失败：" + err, Toast.LENGTH_SHORT).show();
+            if (camOn) trtc.startLocalPreview(true, localView);
+            return;
+        }
+        sharing = true;
+        Toast.makeText(this, "已开始共享屏幕，其他人可看到", Toast.LENGTH_SHORT).show();
+    }
+
+    private void stopScreenShare() {
+        try {
+            Method m = TRTCCloud.class.getMethod("stopScreenCapture");
+            m.invoke(trtc);
+        } catch (Exception ignored) {
+        }
+        if (camOn && trtc != null) {
+            trtc.startLocalPreview(true, localView);
+        }
+        sharing = false;
+        Toast.makeText(this, "已停止屏幕共享", Toast.LENGTH_SHORT).show();
+    }
+
+    /* ==================== 图片聊天 ==================== */
+
+    private void pickChatImage() {
+        String perm = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                ? Manifest.permission.READ_MEDIA_IMAGES : Manifest.permission.READ_EXTERNAL_STORAGE;
+        if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{perm}, REQ_IMG_PERM);
+            return;
+        }
+        openImagePicker();
+    }
+
+    private void openImagePicker() {
+        Intent it = new Intent(Intent.ACTION_GET_CONTENT);
+        it.setType("image/*");
+        try {
+            startActivityForResult(Intent.createChooser(it, "选择图片"), REQ_IMG);
+        } catch (Exception e) {
+            Toast.makeText(this, "无法打开图库", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_IMG && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            uploadChatImage(data.getData());
+        }
+    }
+
+    private void uploadChatImage(Uri uri) {
+        showLoading("图片发送中…");
+        new Thread(() -> {
+            String payload = null;
+            try {
+                Bitmap bm = MediaStore.Images.Media.getBitmap(getContentResolver(), uri);
+                int max = 1080;
+                int w = bm.getWidth();
+                int h = bm.getHeight();
+                float scale = Math.min(1f, (float) max / Math.max(w, h));
+                if (scale < 1f) {
+                    bm = Bitmap.createScaledBitmap(bm, Math.round(w * scale), Math.round(h * scale), true);
+                }
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                bm.compress(Bitmap.CompressFormat.JPEG, 80, bos);
+                payload = "data:image/jpeg;base64,"
+                        + Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP);
+            } catch (Exception e) {
+                Log.w(TAG, "read image failed: " + e.getMessage());
+            }
+            final String b64 = payload;
+            handler.post(() -> {
+                if (b64 == null) {
+                    hideLoading();
+                    Toast.makeText(this, "读取图片失败", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                Map<String, String> p = new LinkedHashMap<>();
+                p.put("dir", "chat");
+                p.put("from", "base64");
+                p.put("module", "meeting");
+                p.put("Orientation", "1");
+                p.put("imgBase64", b64);
+                http("POST", "/index.php/index/attachment/upload.html", p, (resp, err) -> {
+                    hideLoading();
+                    if (resp == null || resp.optInt("code", 0) != 1) {
+                        Toast.makeText(this, resp == null ? "图片上传失败"
+                                : resp.optString("info", "图片上传失败"), Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    String url = resp.optString("url", "");
+                    if (url.isEmpty()) url = resp.optString("path", "");
+                    if (url.isEmpty()) {
+                        Toast.makeText(this, "图片上传失败", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    appendChatImage(selfName.isEmpty() ? "我" : selfName, url);
+                    JSONObject d = new JSONObject();
+                    try {
+                        d.put("t", "img");
+                        d.put("name", selfName);
+                        d.put("url", url);
+                    } catch (Exception ignored) {
+                    }
+                    sendCustom(d);
+                });
+            });
+        }).start();
+    }
+
+    /** 聊天室里渲染一条图片消息（点击用浏览器打开大图） */
+    private void appendChatImage(String name, String url) {
+        if (chatList == null) return;
+        final String full = url.startsWith("http") ? url : base + url;
+        TextView tv = new TextView(this);
+        tv.setText(name + "：📷 [图片，点击查看]");
+        tv.setTextColor(Color.parseColor("#9AD0FF"));
+        tv.setTextSize(13);
+        tv.setPadding(4, 4, 4, 4);
+        tv.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(full)));
+            } catch (Exception e) {
+                Toast.makeText(this, "打不开图片", Toast.LENGTH_SHORT).show();
+            }
+        });
+        chatList.addView(tv);
+    }
+
     /* ==================== 浮窗显示（系统画中画，无需悬浮窗权限） ==================== */
 
     private void enterPip() {
@@ -1233,6 +1417,14 @@ public class MeetingActivity extends AppCompatActivity {
     private void exitAll() {
         inRoom = false;
         stopSubtitleSilent();
+        if (sharing && trtc != null) {
+            try {
+                Method m = TRTCCloud.class.getMethod("stopScreenCapture");
+                m.invoke(trtc);
+            } catch (Exception ignored) {
+            }
+            sharing = false;
+        }
         handler.removeCallbacks(heartbeatTask);
         Map<String, String> p = new LinkedHashMap<>();
         p.put("roomId", String.valueOf(roomId));

@@ -17,6 +17,12 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Android 9 及以下保存分享图片到公共相册 -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- 【2026-10-06】会议图片聊天：Android 13+ 用 READ_MEDIA_IMAGES，旧版用 READ_EXTERNAL_STORAGE -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- 【2026-10-06】TRTC 屏幕共享：前台服务 + 媒体投影（Android 10+ 必需） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
@@ -60,6 +66,16 @@
             android:supportsPictureInPicture="true"
             android:theme="@style/AppTheme"
             android:windowSoftInputMode="adjustResize" />
+
+        <!-- 【2026-10-06】TRTC 屏幕共享必须声明的辅助 Activity 与前台服务 -->
+        <activity
+            android:name="com.tencent.rtmp.video.TXScreenCapture$TXScreenCaptureAssistantActivity"
+            android:theme="@android:style/Theme.Translucent" />
+
+        <service
+            android:name="com.tencent.rtmp.video.ScreenCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
 
         <!-- 拍照上传用 -->
         <provider
