@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -50,50 +51,93 @@ public class UpdateManager {
     }
 
     void check() {
-        executor.execute(this::fetchAndCompare);
+        executor.execute(() -> fetchAndCompare(false));
     }
 
-    private void fetchAndCompare() {
-        HttpURLConnection conn = null;
-        try {
-            conn = (HttpURLConnection) new URL(CHECK_URL).openConnection();
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(8000);
-            conn.setInstanceFollowRedirects(true);
-            conn.setRequestProperty("User-Agent", "TunLianApp/" + BuildConfig.VERSION_NAME);
-            if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) return;
+    /** 网页/菜单里手动点的：不管有没有新版本都给明确反馈 */
+    void checkManual() {
+        executor.execute(() -> fetchAndCompare(true));
+    }
 
-            InputStream is = conn.getInputStream();
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
-            is.close();
+    /** 从后台切回前台时用：2 小时内不重复打扰 */
+    void checkIfNeeded() {
+        SharedPreferences sp = activity.getSharedPreferences("tunlian_update", Context.MODE_PRIVATE);
+        long last = sp.getLong("last_check", 0);
+        if (System.currentTimeMillis() - last < 2 * 60 * 60 * 1000L) return;
+        check();
+    }
 
-            JSONObject j = new JSONObject(bos.toString("UTF-8"));
-            int latest = j.optInt("versionCode", -1);
-            if (latest <= BuildConfig.VERSION_CODE) return;
+    /** 拉版本信息；失败自动重试一次（弱网/运营商缓存经常第一次拿不到） */
+    private JSONObject fetchVersion() {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            HttpURLConnection conn = null;
+            try {
+                String url = CHECK_URL + (CHECK_URL.contains("?") ? "&" : "?") + "t=" + System.currentTimeMillis();
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setConnectTimeout(8000);
+                conn.setReadTimeout(8000);
+                conn.setInstanceFollowRedirects(true);
+                conn.setUseCaches(false);
+                conn.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
+                conn.setRequestProperty("Pragma", "no-cache");
+                conn.setRequestProperty("User-Agent", "TunLianApp/" + BuildConfig.VERSION_NAME);
+                if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) continue;
 
-            String name = j.optString("versionName", "新版本");
-            String note = j.optString("note", "");
-            boolean force = j.optBoolean("force", false);
-            String url = j.optString("url", "");
-            if (url.isEmpty()) return;
+                InputStream is = conn.getInputStream();
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+                is.close();
 
-            activity.runOnUiThread(() -> showDialog(name, note, force, url));
-        } catch (Exception e) {
-            Log.w(TAG, "检查更新失败", e);
-        } finally {
-            if (conn != null) conn.disconnect();
+                JSONObject j = new JSONObject(bos.toString("UTF-8"));
+                if (j.optInt("versionCode", -1) > 0) return j;
+            } catch (Exception e) {
+                Log.w(TAG, "检查更新失败(第" + (attempt + 1) + "次)", e);
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
         }
+        return null;
+    }
+
+    private void fetchAndCompare(boolean manual) {
+        JSONObject j = fetchVersion();
+        activity.runOnUiThread(() -> {
+            activity.getSharedPreferences("tunlian_update", Context.MODE_PRIVATE)
+                    .edit().putLong("last_check", System.currentTimeMillis()).apply();
+        });
+        if (j == null) {
+            if (manual) {
+                activity.runOnUiThread(() -> Toast.makeText(activity,
+                        "没查到版本信息，请检查网络后重试", Toast.LENGTH_SHORT).show());
+            }
+            return;
+        }
+
+        int latest = j.optInt("versionCode", -1);
+        String name = j.optString("versionName", "新版本");
+        String note = j.optString("note", "");
+        boolean force = j.optBoolean("force", false);
+        String url = j.optString("url", "");
+
+        if (latest <= BuildConfig.VERSION_CODE || url.isEmpty()) {
+            if (manual) {
+                activity.runOnUiThread(() -> Toast.makeText(activity,
+                        "当前已是最新版本 v" + BuildConfig.VERSION_NAME, Toast.LENGTH_SHORT).show());
+            }
+            return;
+        }
+        activity.runOnUiThread(() -> showDialog(name, note, force, url));
     }
 
     private void showDialog(String name, String note, boolean force, String url) {
         if (activity.isFinishing() || activity.isDestroyed() || dialogShowing) return;
         dialogShowing = true;
-        String msg = (note == null || note.isEmpty())
-                ? "当前版本 v" + BuildConfig.VERSION_NAME + "，建议升级到 " + name
-                : note;
+        String msg = "当前版本 v" + BuildConfig.VERSION_NAME + "（" + BuildConfig.VERSION_CODE + "）"
+                + "　→　新版 v" + name;
+        if (note != null && !note.isEmpty()) msg += "\n\n" + note;
+        msg += "\n\n点「立即升级」自动下载并安装，不用卸载旧版本。";
 
         AlertDialog.Builder b = new AlertDialog.Builder(activity)
                 .setTitle("发现新版本 " + name)

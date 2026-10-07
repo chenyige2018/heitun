@@ -11,8 +11,8 @@ android {
         minSdk 26
         targetSdk 34
         // 每次出包必须 versionCode +1，否则老版本 APP 检测不到更新
-        versionCode 14
-        versionName "1.4.0"
+        versionCode 15
+        versionName "1.4.1"
 
         /* 【2026-10-04】原生音视频 SDK 只保留手机主流架构，避免包体被 x86 撑大 */
         ndk {
@@ -26,6 +26,9 @@ android {
             storePassword "tunlian2026"
             keyAlias "tunlian"
             keyPassword "tunlian2026"
+            /* 【2026-10-07】保留 v1 签名，老机型/部分 ROM 才能识别为同一应用，直接覆盖升级不用卸载 */
+            enableV1Signing true
+            enableV2Signing true
         }
     }
 

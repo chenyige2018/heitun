@@ -449,6 +449,8 @@ public class MainActivity extends AppCompatActivity {
         // 从“允许安装未知应用”设置页返回后，继续完成安装
         if (updateManager != null) {
             updateManager.installPending();
+            // 【2026-10-07】切回前台也查一次（2 小时内不重复），避免冷启动那一次没查到就一直不提示
+            updateManager.checkIfNeeded();
         }
     }
 
@@ -459,6 +461,20 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void setMeetingAudio(final boolean on) {
             runOnUiThread(() -> setMeetingAudioMode(on));
+        }
+
+        /** 【2026-10-07】网页手动触发检查更新：window.TunLianApp.checkUpdate()，没新版本也会提示已是最新 */
+        @JavascriptInterface
+        public void checkUpdate() {
+            runOnUiThread(() -> {
+                if (updateManager != null) updateManager.checkManual();
+            });
+        }
+
+        /** 【2026-10-07】给网页显示当前版本号：window.TunLianApp.appVersion() */
+        @JavascriptInterface
+        public String appVersion() {
+            return "v" + BuildConfig.VERSION_NAME + "（" + BuildConfig.VERSION_CODE + "）";
         }
 
         /** 【2026-10-04】网页主动唤起原生会议页：window.TunLianApp.openNativeMeeting(970136176) */
