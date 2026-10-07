@@ -9,7 +9,9 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -51,6 +53,7 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
@@ -96,6 +99,19 @@ public class MeetingActivity extends AppCompatActivity {
     private volatile boolean subRunning = false;
     private boolean sharing = false;        /* 【2026-10-06】屏幕共享中 */
 
+    /* 【2026-10-07】全屏聊天页 / 头像宫格 / 转写存档 */
+    private AlertDialog chatDialog;
+    private LinearLayout chatMsgList;
+    private ScrollView chatScroll;
+    private EditText chatInput;
+    private final List<JSONObject> chatData = new ArrayList<>();
+    private final Map<String, String> avatarByName = new LinkedHashMap<>();
+    private final Map<String, Bitmap> avatarCache = new LinkedHashMap<>();
+    private final List<JSONObject> memberObjs = new ArrayList<>();
+    private GridLayout avatarGrid;
+    private final Map<String, Integer> voiceVol = new LinkedHashMap<>();
+    private AlertDialog pageDialog;
+
     private TRTCCloud trtc;
     private FrameLayout videoStage;
     private FrameLayout localBox;
@@ -103,9 +119,6 @@ public class MeetingActivity extends AppCompatActivity {
     private TextView tvHint;
     private TextView tvMicLabel;
     private TextView tvCamLabel;
-    private EditText etChat;
-    private LinearLayout chatList;
-    private ScrollView chatPanel;
     private LinearLayout rootLayout;
     private TextView tvSubtitle;
     private AudioRecord audioRecord;
@@ -148,11 +161,9 @@ public class MeetingActivity extends AppCompatActivity {
         tvHint = findViewById(R.id.tvHint);
         tvMicLabel = findViewById(R.id.tvMic);
         tvCamLabel = findViewById(R.id.tvCam);
-        etChat = findViewById(R.id.etChat);
-        chatList = findViewById(R.id.chatList);
-        chatPanel = findViewById(R.id.chatPanel);
         rootLayout = findViewById(R.id.rootLayout);
         tvSubtitle = findViewById(R.id.tvSubtitle);
+        setupAvatarGrid();
 
         TextView tvRoom = findViewById(R.id.tvRoom);
         tvRoom.setText("TUN" + roomId);
@@ -164,13 +175,6 @@ public class MeetingActivity extends AppCompatActivity {
         findViewById(R.id.btnShare).setOnClickListener(v -> toggleScreenShare());
         findViewById(R.id.btnMembers).setOnClickListener(v -> showMembers());
         findViewById(R.id.btnMore).setOnClickListener(v -> showMorePanel());
-        findViewById(R.id.btnEnd).setOnClickListener(v -> confirmEndMeeting());
-        findViewById(R.id.btnSend).setOnClickListener(v -> sendChatText());
-        findViewById(R.id.btnImg).setOnClickListener(v -> pickChatImage());
-        etChat.setOnEditorActionListener((v, actionId, event) -> {
-            sendChatText();
-            return true;
-        });
         localBox.setOnClickListener(v -> toggleCam());
 
         tvHint.setText("正在进入房间…");
@@ -249,6 +253,7 @@ public class MeetingActivity extends AppCompatActivity {
         params.role = TRTCCloudDef.TRTCRoleAnchor;
         trtc.setDefaultStreamRecvMode(true, true);
         trtc.setAudioRoute(TRTCCloudDef.TRTC_AUDIO_ROUTE_SPEAKER);
+        trtc.enableAudioVolumeEvaluation(300);   /* 音量回调：谁在说话排谁前面 */
         trtc.enterRoom(params, TRTCCloudDef.TRTC_APP_SCENE_VIDEOCALL);
 
         inRoom = true;
@@ -292,6 +297,19 @@ public class MeetingActivity extends AppCompatActivity {
         @Override
         public void onRemoteUserLeaveRoom(String userId, int reason) {
             runOnUiThread(() -> removeRemoteView(userId));
+        }
+
+        @Override
+        public void onUserVoiceVolume(java.util.ArrayList<TRTCCloudDef.TRTCVolumeInfo> userVolumes, int totalVolume) {
+            runOnUiThread(() -> {
+                if (userVolumes == null) return;
+                for (TRTCCloudDef.TRTCVolumeInfo info : userVolumes) {
+                    if (info == null) continue;
+                    String uid = (info.userId == null || info.userId.isEmpty()) ? selfId : info.userId;
+                    voiceVol.put(uid, info.volume);
+                }
+                updateAvatarGrid();
+            });
         }
 
         @Override
@@ -389,6 +407,7 @@ public class MeetingActivity extends AppCompatActivity {
         trtc.startRemoteView(userId, TRTCCloudDef.TRTC_VIDEO_STREAM_TYPE_BIG, v);
         setActiveVideo(userId);
         tvHint.setText("");
+        updateAvatarGrid();
     }
 
     private void removeRemoteView(String userId) {
@@ -401,12 +420,94 @@ public class MeetingActivity extends AppCompatActivity {
             for (String k : remoteViews.keySet()) next = k;
             if (next != null) setActiveVideo(next);
         }
+        updateAvatarGrid();
     }
 
     private void setActiveVideo(String userId) {
         activeVideoUserId = userId;
         for (Map.Entry<String, TXCloudVideoView> e : remoteViews.entrySet()) {
             e.getValue().setVisibility(e.getKey().equals(userId) ? View.VISIBLE : View.GONE);
+        }
+        updateAvatarGrid();
+    }
+
+    /* ==================== 头像宫格（没人开视频时替代黑屏） ==================== */
+
+    private void setupAvatarGrid() {
+        avatarGrid = new GridLayout(this);
+        avatarGrid.setColumnCount(3);
+        avatarGrid.setVisibility(View.GONE);
+        FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER);
+        videoStage.addView(avatarGrid, glp);
+    }
+
+    /** 重建头像宫格：说话的人排最前（近 3 秒内有音量），其余按成员顺序 */
+    private void updateAvatarGrid() {
+        if (avatarGrid == null) return;
+        boolean anyVideo = !remoteViews.isEmpty() || camOn;
+        if (anyVideo) {
+            avatarGrid.setVisibility(View.GONE);
+            return;
+        }
+        avatarGrid.setVisibility(View.VISIBLE);
+        avatarGrid.removeAllViews();
+        if (memberObjs.isEmpty()) {
+            TextView wait = new TextView(this);
+            wait.setText("等待成员加入…");
+            wait.setTextColor(Color.parseColor("#9aa7b5"));
+            wait.setTextSize(14);
+            avatarGrid.addView(wait);
+            return;
+        }
+        int dpi = (int) getResources().getDisplayMetrics().density;
+        /* 按“最近在说话”排序：volume 大的靠前 */
+        List<JSONObject> sorted = new ArrayList<>(memberObjs);
+        java.util.Collections.sort(sorted, (a, b) -> {
+            int va = voiceVol.containsKey(String.valueOf(a.optInt("uid", 0)))
+                    ? voiceVol.get(String.valueOf(a.optInt("uid", 0))) : 0;
+            int vb = voiceVol.containsKey(String.valueOf(b.optInt("uid", 0)))
+                    ? voiceVol.get(String.valueOf(b.optInt("uid", 0))) : 0;
+            return vb - va;
+        });
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int cellW = Math.min(screenW / 3, 130 * dpi);
+        int cellH = 150 * dpi;
+        for (JSONObject mem : sorted) {
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(cellW, cellH);
+            clp.setMargins(6 * dpi, 10 * dpi, 6 * dpi, 0);
+            cell.setLayoutParams(clp);
+            View av = buildAvatarView(mem.optString("name", ""),
+                    mem.optString("icon", ""), 72 * dpi);
+            cell.addView(av);
+            TextView nm = new TextView(this);
+            String n = mem.optString("name", "");
+            nm.setText(n.isEmpty() ? "用户" + mem.optInt("uid", 0) : n);
+            nm.setTextColor(Color.WHITE);
+            nm.setTextSize(13);
+            nm.setMaxLines(1);
+            nm.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            nm.setGravity(Gravity.CENTER);
+            nm.setPadding(2 * dpi, 6 * dpi, 2 * dpi, 0);
+            cell.addView(nm, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            TextView mic = new TextView(this);
+            mic.setText(mem.optInt("mic", 1) == 1 ? "🎤" : "🔇");
+            mic.setTextSize(11);
+            mic.setGravity(Gravity.CENTER);
+            cell.addView(mic);
+            final String uid = String.valueOf(mem.optInt("uid", 0));
+            final boolean hasCam = mem.optInt("cam", 0) == 1;
+            if (hasCam) {
+                cell.setOnClickListener(v -> {
+                    if (remoteViews.containsKey(uid)) setActiveVideo(uid);
+                });
+            }
+            avatarGrid.addView(cell);
         }
     }
     /* ==================== 控制条 / 聊天 / 成员 ==================== */
@@ -454,9 +555,10 @@ public class MeetingActivity extends AppCompatActivity {
     }
 
     private void sendChatText() {
-        String text = etChat.getText().toString().trim();
+        if (chatInput == null) return;
+        String text = chatInput.getText().toString().trim();
         if (text.isEmpty()) return;
-        etChat.setText("");
+        chatInput.setText("");
         JSONObject d = new JSONObject();
         try {
             d.put("t", "text");
@@ -464,26 +566,284 @@ public class MeetingActivity extends AppCompatActivity {
             d.put("name", selfName);
         } catch (Exception ignored) {
         }
-        appendChat(selfName.isEmpty() ? "我" : selfName + "（我）", text);
+        appendChat(selfName, text, "", true);
         sendCustom(d);
     }
 
+    /** 收到/发出一条消息：先存进 chatData，聊天页开着就渲染 */
     private void appendChat(String name, String text) {
-        TextView tv = new TextView(this);
-        tv.setText(name + "：" + text);
-        tv.setTextColor(Color.parseColor("#E8EAED"));
-        tv.setTextSize(14);
-        tv.setPadding(0, 6, 0, 6);
-        chatList.addView(tv);
-        chatPanel.post(() -> chatPanel.fullScroll(View.FOCUS_DOWN));
-        if (chatPanel.getVisibility() != View.VISIBLE) {
-            chatPanel.setVisibility(View.VISIBLE);
-            handler.postDelayed(() -> {
-                if (etChat.getText().toString().trim().isEmpty()) {
-                    chatPanel.setVisibility(View.GONE);
-                }
-            }, 6000);
+        appendChat(name, text, "", name != null && name.equals(selfName));
+    }
+
+    private void appendChat(String name, String text, String imgUrl, boolean mine) {
+        JSONObject m = new JSONObject();
+        try {
+            m.put("name", name == null || name.isEmpty() ? "会议成员" : name);
+            m.put("text", text == null ? "" : text);
+            m.put("url", imgUrl == null ? "" : imgUrl);
+            m.put("mine", mine);
+            m.put("icon", avatarByName.containsKey(name) ? avatarByName.get(name) : "");
+        } catch (Exception ignored) {
         }
+        chatData.add(m);
+        addChatBubble(m);
+    }
+
+    /* ==================== 全屏聊天页 ==================== */
+
+    private void openChatPage() {
+        if (chatDialog != null && chatDialog.isShowing()) return;
+        int dpi = (int) getResources().getDisplayMetrics().density;
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.parseColor("#17181A"));
+
+        /* 顶栏 */
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(16 * dpi, 12 * dpi, 16 * dpi, 12 * dpi);
+        TextView title = new TextView(this);
+        title.setText("聊天");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(17);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        tp.leftMargin = 12 * dpi;
+        title.setLayoutParams(tp);
+        TextView close = new TextView(this);
+        close.setText("✕");
+        close.setTextColor(Color.parseColor("#C9CDD4"));
+        close.setTextSize(18);
+        close.setPadding(12 * dpi, 4 * dpi, 4 * dpi, 4 * dpi);
+        close.setOnClickListener(v -> {
+            if (chatDialog != null) chatDialog.dismiss();
+        });
+        bar.addView(title);
+        bar.addView(close);
+        root.addView(bar);
+
+        /* 消息列表 */
+        chatMsgList = new LinearLayout(this);
+        chatMsgList.setOrientation(LinearLayout.VERTICAL);
+        chatMsgList.setPadding(10 * dpi, 6 * dpi, 10 * dpi, 16 * dpi);
+        chatScroll = new ScrollView(this);
+        chatScroll.addView(chatMsgList);
+        root.addView(chatScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        /* 输入行（图片按钮移到这里） */
+        LinearLayout inRow = new LinearLayout(this);
+        inRow.setOrientation(LinearLayout.HORIZONTAL);
+        inRow.setGravity(Gravity.CENTER_VERTICAL);
+        inRow.setPadding(10 * dpi, 8 * dpi, 10 * dpi, 10 * dpi);
+        Button imgBtn = new Button(this);
+        imgBtn.setText("🖼");
+        imgBtn.setTextSize(16);
+        imgBtn.setBackgroundResource(R.drawable.bg_btn_dark);
+        imgBtn.setOnClickListener(v -> pickChatImage());
+        inRow.addView(imgBtn, new LinearLayout.LayoutParams(40 * dpi, 40 * dpi));
+        chatInput = new EditText(this);
+        chatInput.setHint("说点什么...");
+        chatInput.setHintTextColor(Color.parseColor("#8A8F99"));
+        chatInput.setTextColor(Color.WHITE);
+        chatInput.setTextSize(14);
+        chatInput.setMaxLines(1);
+        chatInput.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND);
+        chatInput.setBackgroundResource(R.drawable.bg_input);
+        chatInput.setPadding(14 * dpi, 0, 14 * dpi, 0);
+        LinearLayout.LayoutParams etp = new LinearLayout.LayoutParams(0, 40 * dpi, 1);
+        etp.leftMargin = 8 * dpi;
+        chatInput.setLayoutParams(etp);
+        chatInput.setOnEditorActionListener((v, actionId, event) -> {
+            sendChatText();
+            return true;
+        });
+        inRow.addView(chatInput);
+        Button send = new Button(this);
+        send.setText("发送");
+        send.setTextColor(Color.WHITE);
+        send.setTextSize(14);
+        send.setBackgroundResource(R.drawable.bg_btn_blue);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, 40 * dpi);
+        sp.leftMargin = 8 * dpi;
+        send.setLayoutParams(sp);
+        send.setOnClickListener(v -> sendChatText());
+        inRow.addView(send);
+        root.addView(inRow);
+
+        chatDialog = new AlertDialog.Builder(this).setView(root).create();
+        chatDialog.show();
+        if (chatDialog.getWindow() != null) {
+            chatDialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT);
+            chatDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+        /* 重画历史消息 */
+        chatMsgList.removeAllViews();
+        for (JSONObject m : chatData) addChatBubble(m);
+    }
+
+    /** 渲染一条消息：头像 + 名字 + 气泡（文字或图片），自己的靠右 */
+    private void addChatBubble(JSONObject m) {
+        if (chatMsgList == null || m == null) return;
+        int dpi = (int) getResources().getDisplayMetrics().density;
+        boolean mine = m.optBoolean("mine", false);
+        String name = m.optString("name", "会议成员");
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, 5 * dpi, 0, 5 * dpi);
+        row.setGravity(Gravity.TOP);
+        if (mine) row.setGravity(Gravity.END);
+
+        View av = buildAvatarView(name, m.optString("icon", ""), 36 * dpi);
+        LinearLayout.LayoutParams avp = new LinearLayout.LayoutParams(36 * dpi, 36 * dpi);
+        if (!mine) avp.rightMargin = 8 * dpi; else avp.leftMargin = 8 * dpi;
+        av.setLayoutParams(avp);
+        if (mine) {
+            row.addView(buildBubble(m, dpi));
+            row.addView(av);
+        } else {
+            row.addView(av);
+            row.addView(buildBubble(m, dpi));
+        }
+        chatMsgList.addView(row);
+        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+    }
+
+    private View buildBubble(JSONObject m, int dpi) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams colp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        colp.leftMargin = 2 * dpi;
+        colp.rightMargin = 2 * dpi;
+        col.setLayoutParams(colp);
+        TextView nm = new TextView(this);
+        nm.setText(m.optString("name", ""));
+        nm.setTextSize(12);
+        nm.setTextColor(Color.parseColor("#8A93A0"));
+        nm.setPadding(4 * dpi, 0, 4 * dpi, 2 * dpi);
+        nm.setGravity(m.optBoolean("mine", false) ? Gravity.END : Gravity.START);
+        col.addView(nm);
+
+        String url = m.optString("url", "");
+        GradientDrawable bubble = new GradientDrawable();
+        bubble.setCornerRadius(10 * dpi);
+        bubble.setColor(Color.parseColor(m.optBoolean("mine", false) ? "#1F4E79" : "#232830"));
+        if (!url.isEmpty()) {
+            FrameLayout imgBox = new FrameLayout(this);
+            ImageView iv = new ImageView(this);
+            iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            iv.setAdjustViewBounds(true);
+            iv.setBackground(bubble);
+            iv.setPadding(4 * dpi, 4 * dpi, 4 * dpi, 4 * dpi);
+            int w = (int) (getResources().getDisplayMetrics().widthPixels * 0.55f);
+            FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(w, w);
+            iv.setLayoutParams(ilp);
+            final String full = url.startsWith("http") ? url : base + url;
+            iv.setOnClickListener(v -> {
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(full)));
+                } catch (Exception e) {
+                    Toast.makeText(this, "打不开图片", Toast.LENGTH_SHORT).show();
+                }
+            });
+            loadBitmapInto(full, iv, w);
+            imgBox.addView(iv);
+            FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            blp.gravity = m.optBoolean("mine", false) ? Gravity.END : Gravity.START;
+            imgBox.setLayoutParams(blp);
+            col.addView(imgBox);
+        } else {
+            TextView tv = new TextView(this);
+            String txt = m.optString("text", "");
+            tv.setText(txt);
+            tv.setTextSize(15);
+            tv.setTextColor(Color.parseColor("#E8EAED"));
+            tv.setBackground(bubble);
+            tv.setPadding(10 * dpi, 7 * dpi, 10 * dpi, 7 * dpi);
+            LinearLayout.LayoutParams tvp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            tvp.gravity = m.optBoolean("mine", false) ? Gravity.END : Gravity.START;
+            tvp.width = Math.min(
+                    (int) (getResources().getDisplayMetrics().widthPixels * 0.62f), 1 + 14 * txt.length() * dpi);
+            tv.setLayoutParams(tvp);
+            col.addView(tv);
+        }
+        return col;
+    }
+
+    /** 头像：有图用圆头像，没有用首字彩色圆标 */
+    private View buildAvatarView(String name, String iconUrl, int sizePx) {
+        FrameLayout box = new FrameLayout(this);
+        TextView letter = new TextView(this);
+        String n = name == null || name.isEmpty() ? "?" : name.trim();
+        letter.setText(n.isEmpty() ? "?" : n.substring(0, 1));
+        letter.setTextColor(Color.WHITE);
+        letter.setTextSize(14);
+        letter.setGravity(Gravity.CENTER);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        int[] colors = {0xFF2C6BED, 0xFF7B52CC, 0xFF1F9D6E, 0xFFC25E1E, 0xFF3B7EA1, 0xFF8A4B60};
+        bg.setColor(colors[Math.abs(n.hashCode()) % colors.length]);
+        letter.setBackground(bg);
+        box.addView(letter, new FrameLayout.LayoutParams(sizePx, sizePx));
+        if (iconUrl != null && !iconUrl.isEmpty()) {
+            final ImageView iv = new ImageView(this);
+            iv.setVisibility(View.GONE);
+            box.addView(iv, new FrameLayout.LayoutParams(sizePx, sizePx));
+            loadBitmapInto(iconUrl, iv, sizePx, letter);
+        }
+        return box;
+    }
+
+    /** 简易图片加载（线程 + 内存缓存），加载完圆形裁切 */
+    private void loadBitmapInto(final String url, final ImageView iv, final int sizePx, final View... fallback) {
+        Bitmap c = avatarCache.get(url);
+        if (c != null) {
+            iv.setImageBitmap(rounded(c, sizePx));
+            iv.setVisibility(View.VISIBLE);
+            for (View f : fallback) f.setVisibility(View.GONE);
+            return;
+        }
+        new Thread(() -> {
+            Bitmap bm = null;
+            try {
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setConnectTimeout(8000);
+                conn.setReadTimeout(15000);
+                InputStream is = conn.getInputStream();
+                bm = BitmapFactory.decodeStream(is);
+                is.close();
+                conn.disconnect();
+            } catch (Exception e) {
+                Log.w(TAG, "img load failed: " + e.getMessage());
+            }
+            if (bm != null) avatarCache.put(url, bm);
+            final Bitmap fbm = bm;
+            handler.post(() -> {
+                if (fbm == null) return;
+                iv.setImageBitmap(rounded(fbm, sizePx));
+                iv.setVisibility(View.VISIBLE);
+                for (View f : fallback) f.setVisibility(View.GONE);
+            });
+        }).start();
+    }
+
+    private android.graphics.drawable.Drawable rounded(Bitmap src, int sizePx) {
+        android.graphics.drawable.Drawable d =
+                androidx.core.graphics.drawable.RoundedBitmapDrawableFactory.create(getResources(), src);
+        if (d instanceof android.graphics.drawable.BitmapDrawable) {
+            ((android.graphics.drawable.BitmapDrawable) d).setAntiAlias(true);
+        }
+        if (d instanceof androidx.core.graphics.drawable.RoundedBitmapDrawable) {
+            ((androidx.core.graphics.drawable.RoundedBitmapDrawable) d).setCircular(true);
+        }
+        return d;
     }
 
     private void showMembers() {
@@ -538,10 +898,13 @@ public class MeetingActivity extends AppCompatActivity {
                 {R.drawable.ic_more_replay, "录制回放", "replay"},
                 {R.drawable.ic_more_sub, "开启字幕", "sub"},
                 {R.drawable.ic_more_ai, "豚链纪要", "ai"},
+                {R.drawable.ic_more_note, "转写记录", "note"},
+                {R.drawable.ic_more_end, "结束会议", "end"},
         };
         for (Object[] it : items) {
             boolean enabled = !"none".equals(it[2]);
             if ("host".equals(it[2]) && !isHost) enabled = false;
+            if ("end".equals(it[2]) && !isHost) enabled = false;
             View cell = buildMoreCell((Integer) it[0], (String) it[1], enabled, dpi);
             GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
             lp.width = cellW;
@@ -819,23 +1182,9 @@ public class MeetingActivity extends AppCompatActivity {
         }).start();
     }
 
-    /** 聊天室里渲染一条图片消息（点击用浏览器打开大图） */
+    /** 图片消息：统一进 chatData，由全屏聊天页渲染 */
     private void appendChatImage(String name, String url) {
-        if (chatList == null) return;
-        final String full = url.startsWith("http") ? url : base + url;
-        TextView tv = new TextView(this);
-        tv.setText(name + "：📷 [图片，点击查看]");
-        tv.setTextColor(Color.parseColor("#9AD0FF"));
-        tv.setTextSize(13);
-        tv.setPadding(4, 4, 4, 4);
-        tv.setOnClickListener(v -> {
-            try {
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(full)));
-            } catch (Exception e) {
-                Toast.makeText(this, "打不开图片", Toast.LENGTH_SHORT).show();
-            }
-        });
-        chatList.addView(tv);
+        appendChat(name, "", url, name != null && name.equals(selfName));
     }
 
     /* ==================== 浮窗显示（系统画中画，无需悬浮窗权限） ==================== */
@@ -871,7 +1220,6 @@ public class MeetingActivity extends AppCompatActivity {
             for (int i = 0; i < rootLayout.getChildCount(); i++) {
                 rootLayout.getChildAt(i).setVisibility(View.VISIBLE);
             }
-            chatPanel.setVisibility(View.GONE);
             tvSubtitle.setVisibility(subOn ? View.VISIBLE : View.GONE);
         }
     }
@@ -993,6 +1341,11 @@ public class MeetingActivity extends AppCompatActivity {
             String txt = data.optString("text", "").trim();
             if (txt.isEmpty()) return;
             showSubtitle(selfName.isEmpty() ? "我" : selfName, txt);
+            /* 【2026-10-07】同步存档到服务器转写记录，供「转写记录」页随时查看 */
+            Map<String, String> sp = new LinkedHashMap<>();
+            sp.put("roomId", String.valueOf(roomId));
+            sp.put("text", txt);
+            http("POST", "/index.php/index/meeting/subsave.html", sp, null);
             JSONObject d = new JSONObject();
             try {
                 d.put("t", "sub");
@@ -1057,7 +1410,7 @@ public class MeetingActivity extends AppCompatActivity {
                 shareInvite();
                 break;
             case "chat":
-                chatPanel.setVisibility(chatPanel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+                openChatPage();
                 break;
             case "host":
                 showHostTools();
@@ -1070,6 +1423,12 @@ public class MeetingActivity extends AppCompatActivity {
                 break;
             case "sub":
                 toggleSubtitle();
+                break;
+            case "note":
+                openTranscriptPage();
+                break;
+            case "end":
+                confirmEndMeeting();
                 break;
             case "checkin": {
                 checkinCount = 0;
@@ -1148,6 +1507,193 @@ public class MeetingActivity extends AppCompatActivity {
             Toast.makeText(this, "分享失败", Toast.LENGTH_SHORT).show();
         }
     }
+    /* ==================== 通用全屏页面壳 / 转写记录 ==================== */
+
+    /** 全屏深色页面：顶栏标题+关闭，返回弹窗句柄方便页面跳转 */
+    private AlertDialog showPage(String title, View content) {
+        int dpi = (int) getResources().getDisplayMetrics().density;
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.parseColor("#17181A"));
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(16 * dpi, 12 * dpi, 16 * dpi, 12 * dpi);
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(17);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        tp.leftMargin = 12 * dpi;
+        t.setLayoutParams(tp);
+        TextView close = new TextView(this);
+        close.setText("✕");
+        close.setTextColor(Color.parseColor("#C9CDD4"));
+        close.setTextSize(18);
+        close.setPadding(12 * dpi, 4 * dpi, 4 * dpi, 4 * dpi);
+        close.setOnClickListener(v -> {
+            if (pageDialog != null) pageDialog.dismiss();
+        });
+        bar.addView(t);
+        bar.addView(close);
+        root.addView(bar);
+        content.setPadding(content.getPaddingLeft(), 4 * dpi,
+                content.getPaddingRight(), 12 * dpi);
+        root.addView(content, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        if (pageDialog != null && pageDialog.isShowing()) pageDialog.dismiss();
+        pageDialog = new AlertDialog.Builder(this).setView(root).create();
+        pageDialog.show();
+        if (pageDialog.getWindow() != null) {
+            pageDialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT);
+            pageDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+        return pageDialog;
+    }
+
+    /** 转写记录：先列出有存档的会议（含当前会议），点进去看逐句内容 */
+    private void openTranscriptPage() {
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(14, 6, 14, 6);
+
+        /* 当前会议置顶 */
+        LinearLayout cur = new LinearLayout(this);
+        cur.setOrientation(LinearLayout.VERTICAL);
+        cur.setPadding(12, 14, 12, 14);
+        GradientDrawable curBg = new GradientDrawable();
+        curBg.setCornerRadius(12);
+        curBg.setColor(Color.parseColor("#232830"));
+        cur.setBackground(curBg);
+        TextView ct = new TextView(this);
+        ct.setText("当前会议 TUN" + roomId);
+        ct.setTextColor(Color.WHITE);
+        ct.setTextSize(15);
+        cur.addView(ct);
+        TextView cs = new TextView(this);
+        cs.setText("查看本场会议的实时转写内容 →");
+        cs.setTextColor(Color.parseColor("#7BC47F"));
+        cs.setTextSize(12);
+        cs.setPadding(0, 6, 0, 0);
+        cur.addView(cs);
+        cur.setOnClickListener(v -> openTranscriptDetail(roomId, "当前会议 TUN" + roomId));
+        LinearLayout.LayoutParams curp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        curp.bottomMargin = 12;
+        list.addView(cur, curp);
+
+        TextView hisTitle = new TextView(this);
+        hisTitle.setText("历史会议转写");
+        hisTitle.setTextColor(Color.parseColor("#8A93A0"));
+        hisTitle.setTextSize(13);
+        hisTitle.setPadding(4, 4, 4, 10);
+        list.addView(hisTitle);
+
+        showPage("转写记录", list);
+        showLoading("获取转写记录…");
+        http("GET", "/index.php/index/meeting/subhistory.html", null, (resp, err) -> {
+            hideLoading();
+            if (resp == null || resp.optInt("code", 1) != 0) {
+                addPageLine(list, resp == null ? "网络异常，稍后重试" : "暂无历史转写记录");
+                return;
+            }
+            JSONArray arr = resp.optJSONObject("data").optJSONArray("list");
+            if (arr == null || arr.length() == 0) {
+                addPageLine(list, "还没有历史转写。开会时开启「字幕」，讲话会自动存档到这里。");
+                return;
+            }
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject r = arr.optJSONObject(i);
+                if (r == null) continue;
+                final int rid = r.optInt("roomId", 0);
+                String label = r.optString("timeText", "") + " 的会议 · "
+                        + r.optInt("count", 0) + " 条";
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.VERTICAL);
+                row.setPadding(12, 14, 12, 14);
+                GradientDrawable bg = new GradientDrawable();
+                bg.setCornerRadius(12);
+                bg.setColor(Color.parseColor("#1C2026"));
+                row.setBackground(bg);
+                TextView tv = new TextView(this);
+                tv.setText(label);
+                tv.setTextColor(Color.parseColor("#E8EAED"));
+                tv.setTextSize(14);
+                row.addView(tv);
+                row.setOnClickListener(v -> openTranscriptDetail(rid, label));
+                LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                rp.bottomMargin = 10;
+                list.addView(row, rp);
+            }
+        });
+    }
+
+    private void addPageLine(LinearLayout list, String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(Color.parseColor("#8A93A0"));
+        tv.setTextSize(13);
+        tv.setPadding(4, 10, 4, 10);
+        list.addView(tv);
+    }
+
+    /** 某场会议的转写详情：逐句 姓名 + 时间 + 内容 */
+    private void openTranscriptDetail(int rid, String title) {
+        showLoading("获取转写内容…");
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("roomId", String.valueOf(rid));
+        http("GET", "/index.php/index/meeting/sublist.html", q, (resp, err) -> {
+            hideLoading();
+            LinearLayout list = new LinearLayout(this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            list.setPadding(14, 6, 14, 6);
+            if (resp == null || resp.optInt("code", 1) != 0) {
+                addPageLine(list, resp == null ? "网络异常，稍后重试"
+                        : resp.optString("msg", "获取失败"));
+                showPage(title, list);
+                return;
+            }
+            JSONArray arr = resp.optJSONObject("data").optJSONArray("list");
+            if (arr == null || arr.length() == 0) {
+                addPageLine(list, "本场还没有转写内容。开启「字幕」后讲话即自动记录。");
+                showPage(title, list);
+                return;
+            }
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject r = arr.optJSONObject(i);
+                if (r == null) continue;
+                LinearLayout block = new LinearLayout(this);
+                block.setOrientation(LinearLayout.VERTICAL);
+                block.setPadding(12, 12, 12, 12);
+                GradientDrawable bg = new GradientDrawable();
+                bg.setCornerRadius(10);
+                bg.setColor(Color.parseColor("#1C2026"));
+                block.setBackground(bg);
+                TextView who = new TextView(this);
+                who.setText(r.optString("name", "成员") + "   " + r.optString("timeText", ""));
+                who.setTextColor(Color.parseColor("#8A93A0"));
+                who.setTextSize(12);
+                block.addView(who);
+                TextView txt = new TextView(this);
+                txt.setText(r.optString("text", ""));
+                txt.setTextColor(Color.parseColor("#E8EAED"));
+                txt.setTextSize(15);
+                txt.setPadding(0, 6, 0, 0);
+                block.addView(txt);
+                LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                bp.bottomMargin = 10;
+                list.addView(block, bp);
+            }
+            showPage(title, list);
+        });
+    }
+
     /* ==================== 云录制 ==================== */
 
     private void toggleRecord() {
@@ -1199,11 +1745,8 @@ public class MeetingActivity extends AppCompatActivity {
             }
             ScrollView sv = new ScrollView(this);
             sv.addView(root);
-            new AlertDialog.Builder(this)
-                    .setTitle("云录制回放")
-                    .setView(sv)
-                    .setNegativeButton("关闭", null)
-                    .show();
+            /* 【2026-10-07】升级为全屏录制回放页，保存在云端随时复盘 */
+            showPage("录制回放", sv);
         });
     }
 
@@ -1369,6 +1912,7 @@ public class MeetingActivity extends AppCompatActivity {
             if (arr == null) return;
             memberSummary.clear();
             memberUids.clear();
+            memberObjs.clear();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject m = arr.optJSONObject(i);
                 if (m == null) continue;
@@ -1379,7 +1923,14 @@ public class MeetingActivity extends AppCompatActivity {
                         + "  " + (m.optInt("mic", 1) == 1 ? "🎤" : "🔇")
                         + (m.optInt("cam", 1) == 1 ? " 📷" : ""));
                 memberUids.add(String.valueOf(m.optInt("uid", 0)));
+                memberObjs.add(m);
+                if (!name.isEmpty() && m.optString("icon", "").isEmpty()) {
+                    avatarByName.put(name, "");
+                } else if (!name.isEmpty()) {
+                    avatarByName.put(name, m.optString("icon", ""));
+                }
             }
+            updateAvatarGrid();
         });
     }
 

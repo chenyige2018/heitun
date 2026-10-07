@@ -125,52 +125,7 @@
             android:visibility="gone" />
     </FrameLayout>
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="50dp"
-        android:background="#17181A"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp">
-
-        <Button
-            android:id="@+id/btnImg"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_btn_dark"
-            android:text="🖼"
-            android:textSize="16sp" />
-
-        <EditText
-            android:id="@+id/etChat"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_input"
-            android:hint="说点什么..."
-            android:imeOptions="actionSend"
-            android:inputType="text"
-            android:maxLines="1"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:textColor="#ffffff"
-            android:textColorHint="#8A8F99"
-            android:textSize="14sp" />
-
-        <Button
-            android:id="@+id/btnSend"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/bg_btn_blue"
-            android:paddingStart="18dp"
-            android:paddingEnd="18dp"
-            android:text="发送"
-            android:textColor="#ffffff"
-            android:textSize="14sp" />
-    </LinearLayout>
+    <!-- 【2026-10-07】聊天改为全屏页面（更多面板/输入入口打开），主屏不再放输入行 -->
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -201,11 +156,6 @@
         <LinearLayout style="@style/MeetCtrl">
             <Button android:id="@+id/btnMore" style="@style/MeetBtn" android:text="⋯" />
             <TextView style="@style/MeetLabel" android:text="更多" />
-        </LinearLayout>
-
-        <LinearLayout style="@style/MeetCtrl">
-            <Button android:id="@+id/btnEnd" style="@style/MeetBtnRed" android:text="📵" />
-            <TextView style="@style/MeetLabel" android:text="结束" />
         </LinearLayout>
     </LinearLayout>
 
