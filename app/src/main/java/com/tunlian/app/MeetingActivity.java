@@ -805,7 +805,7 @@ public class MeetingActivity extends AppCompatActivity {
     private void loadBitmapInto(final String url, final ImageView iv, final int sizePx, final View... fallback) {
         Bitmap c = avatarCache.get(url);
         if (c != null) {
-            iv.setImageBitmap(rounded(c, sizePx));
+            iv.setImageDrawable(rounded(c, sizePx));
             iv.setVisibility(View.VISIBLE);
             for (View f : fallback) f.setVisibility(View.GONE);
             return;
@@ -827,7 +827,7 @@ public class MeetingActivity extends AppCompatActivity {
             final Bitmap fbm = bm;
             handler.post(() -> {
                 if (fbm == null) return;
-                iv.setImageBitmap(rounded(fbm, sizePx));
+                iv.setImageDrawable(rounded(fbm, sizePx));
                 iv.setVisibility(View.VISIBLE);
                 for (View f : fallback) f.setVisibility(View.GONE);
             });
@@ -835,14 +835,10 @@ public class MeetingActivity extends AppCompatActivity {
     }
 
     private android.graphics.drawable.Drawable rounded(Bitmap src, int sizePx) {
-        android.graphics.drawable.Drawable d =
+        androidx.core.graphics.drawable.RoundedBitmapDrawable d =
                 androidx.core.graphics.drawable.RoundedBitmapDrawableFactory.create(getResources(), src);
-        if (d instanceof android.graphics.drawable.BitmapDrawable) {
-            ((android.graphics.drawable.BitmapDrawable) d).setAntiAlias(true);
-        }
-        if (d instanceof androidx.core.graphics.drawable.RoundedBitmapDrawable) {
-            ((androidx.core.graphics.drawable.RoundedBitmapDrawable) d).setCircular(true);
-        }
+        d.setAntiAlias(true);
+        d.setCircular(true);
         return d;
     }
 
