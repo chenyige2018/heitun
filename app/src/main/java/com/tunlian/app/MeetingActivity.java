@@ -2033,7 +2033,7 @@ public class MeetingActivity extends AppCompatActivity {
                 if (cookie != null && !cookie.isEmpty()) {
                     conn.setRequestProperty("Cookie", cookie);
                 }
-                conn.setRequestProperty("User-Agent", "TunLianApp/Android");
+                conn.setRequestProperty("User-Agent", getString(R.string.ua_tag) + "/Android");
                 conn.setRequestProperty("Accept", "application/json");
                 if (!"GET".equals(method)) {
                     conn.setDoOutput(true);
