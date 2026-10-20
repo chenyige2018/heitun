@@ -1,7 +1,16 @@
 <resources>
-    <string name="app_name">豚链</string>
+    <string name="app_name">豚链AI</string>
     <!-- APP 打开的网址，改这里即可 -->
     <string name="site_url">https://22.heitun.link/</string>
+
+    <!-- 【2026-10-19】双品牌差异化配置（贝贝快聊在 app/src/beibei/res/values/strings.xml 覆盖） -->
+    <!-- 更新检测地址：每个品牌各查各的，避免互相误报升级 -->
+    <string name="update_check_url">https://22.heitun.link/version.json</string>
+    <!-- 下载下来的更新包文件名 -->
+    <string name="update_apk_name">tunlian-update.apk</string>
+    <!-- WebView UA 标识 + 更新下载通知标题 -->
+    <string name="ua_tag">TunLianApp</string>
+    <string name="update_title">豚链AI更新</string>
 
     <!-- 【2026-10-04】原生会议页样式 -->
     <style name="MeetCtrl">
