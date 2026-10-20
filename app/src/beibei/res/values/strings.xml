@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 【2026-10-19】贝贝快聊：只覆盖需要差异化的项，其余沿用 main -->
+    <string name="app_name">贝贝快聊</string>
+    <!-- 站点与豚链AI相同（同一套网站、同一套账号） -->
+    <string name="site_url">https://22.heitun.link/</string>
+    <!-- 独立更新通道：只认 beibei_version.json，不会去查豚链的版本号 -->
+    <string name="update_check_url">https://22.heitun.link/beibei_version.json</string>
+    <string name="update_apk_name">beibei-update.apk</string>
+    <string name="ua_tag">BeibeiApp</string>
+    <string name="update_title">贝贝快聊更新</string>
+</resources>
