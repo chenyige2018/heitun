@@ -36,8 +36,8 @@ import java.util.concurrent.Executors;
 public class UpdateManager {
 
     private static final String TAG = "TunLianUpdate";
-    private static final String CHECK_URL = "https://22.heitun.link/version.json";
-    private static final String APK_NAME = "tunlian-update.apk";
+    /* 【2026-10-19】更新地址/通知标题/下载文件名改为按品牌取（res/values/strings.xml），
+     * 豚链AI 查 version.json，贝贝快聊查 beibei_version.json，互不干扰 */
 
     private final MainActivity activity;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -72,7 +72,8 @@ public class UpdateManager {
         for (int attempt = 0; attempt < 2; attempt++) {
             HttpURLConnection conn = null;
             try {
-                String url = CHECK_URL + (CHECK_URL.contains("?") ? "&" : "?") + "t=" + System.currentTimeMillis();
+                String checkUrl = activity.getString(R.string.update_check_url);
+                String url = checkUrl + (checkUrl.contains("?") ? "&" : "?") + "t=" + System.currentTimeMillis();
                 conn = (HttpURLConnection) new URL(url).openConnection();
                 conn.setConnectTimeout(8000);
                 conn.setReadTimeout(8000);
@@ -80,7 +81,7 @@ public class UpdateManager {
                 conn.setUseCaches(false);
                 conn.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
                 conn.setRequestProperty("Pragma", "no-cache");
-                conn.setRequestProperty("User-Agent", "TunLianApp/" + BuildConfig.VERSION_NAME);
+                conn.setRequestProperty("User-Agent", activity.getString(R.string.ua_tag) + "/" + BuildConfig.VERSION_NAME);
                 if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) continue;
 
                 InputStream is = conn.getInputStream();
@@ -158,12 +159,12 @@ public class UpdateManager {
         try {
             File dir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
             if (dir == null || (!dir.exists() && !dir.mkdirs())) dir = activity.getCacheDir();
-            File apk = new File(dir, APK_NAME);
+            File apk = new File(dir, activity.getString(R.string.update_apk_name));
             if (apk.exists()) apk.delete();
             pendingApk = apk;
 
             DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
-            req.setTitle("豚链更新");
+            req.setTitle(activity.getString(R.string.update_title));
             req.setDescription("正在下载新版本安装包");
             req.setMimeType("application/vnd.android.package-archive");
             req.setDestinationUri(Uri.fromFile(apk));
