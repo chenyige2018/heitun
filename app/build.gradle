@@ -20,6 +20,21 @@ android {
         }
     }
 
+    /* 【2026-10-19】双品牌：一次构建同时出「豚链AI」和「贝贝快聊」两个包
+     * 包名不同 → 手机上可共存安装、互不覆盖；名称/图标/更新地址各自独立
+     * 构建：gradle assembleTunlianRelease assembleBeibeiRelease */
+    flavorDimensions "brand"
+    productFlavors {
+        tunlian {
+            dimension "brand"
+            applicationId "com.tunlian.app"      // 保持原包名，老用户可无缝覆盖升级
+        }
+        beibei {
+            dimension "brand"
+            applicationId "com.tunlian.beibei"   // 新包名，与豚链AI共存
+        }
+    }
+
     signingConfigs {
         release {
             storeFile file("keystore.jks")
