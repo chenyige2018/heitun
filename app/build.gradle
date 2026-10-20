@@ -77,6 +77,26 @@ android {
     }
 }
 
+/* 【2026-10-20】双口味的 APK 默认落在 app/build/outputs/apk/<口味>/release/ 下，
+ * 原工作流（以及任何按老路径取包的脚本）读的是 app/build/outputs/apk/release/*.apk。
+ * 这里在 assembleRelease 结束后把两个包拷回老目录并改名，避免为了改路径去动 .github/workflows（需要额外权限）。 */
+tasks.register('copyFlavorApks') {
+    doLast {
+        def legacy = file("build/outputs/apk/release")
+        legacy.mkdirs()
+        fileTree("build/outputs/apk").include("*/release/*.apk").each { f ->
+            def flavor = f.parentFile.parentFile.name
+            copy {
+                from f
+                into legacy
+                rename { "${flavor}.apk" }
+            }
+            println "已输出：build/outputs/apk/release/${flavor}.apk"
+        }
+    }
+}
+tasks.named('assembleRelease') { finalizedBy 'copyFlavorApks' }
+
 dependencies {
     /* 【2026-10-04】腾讯 TRTC 原生 SDK：会议不再跑在网页里，走手机硬件回声消除 */
     implementation 'com.tencent.liteav:LiteAVSDK_TRTC:12.9.0.19478'
