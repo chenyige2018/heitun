@@ -95,7 +95,13 @@ tasks.register('copyFlavorApks') {
         }
     }
 }
-tasks.named('assembleRelease') { finalizedBy 'copyFlavorApks' }
+/* 注意：Android 的 assembleRelease 是 afterEvaluate 之后才注册的，这里必须等一等再挂，否则报 UnknownTaskException */
+afterEvaluate {
+    def assembleReleaseTask = tasks.findByName('assembleRelease')
+    if (assembleReleaseTask != null) {
+        assembleReleaseTask.finalizedBy tasks.named('copyFlavorApks')
+    }
+}
 
 dependencies {
     /* 【2026-10-04】腾讯 TRTC 原生 SDK：会议不再跑在网页里，走手机硬件回声消除 */
