@@ -215,7 +215,8 @@ public class MainActivity extends AppCompatActivity {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        settings.setUserAgentString(settings.getUserAgentString() + " TunLianApp/" + BuildConfig.VERSION_NAME);
+        // 【2026-10-19】UA 标识按品牌区分（豚链AI=TunLianApp / 贝贝快聊=BeibeiApp），网页据此判断在哪个 APP 里
+        settings.setUserAgentString(settings.getUserAgentString() + " " + getString(R.string.ua_tag) + "/" + BuildConfig.VERSION_NAME);
 
         // 网页通过 window.TunLianApp 调用：转发分享到微信/QQ/系统面板、保存图片到相册
         webView.addJavascriptInterface(new JsBridge(), "TunLianApp");
