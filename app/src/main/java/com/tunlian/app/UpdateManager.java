@@ -144,7 +144,7 @@ public class UpdateManager {
                 .setTitle("发现新版本 " + name)
                 .setMessage(msg)
                 .setCancelable(!force)
-                .setPositiveButton("立即升级", (d, w) -> startDownload(url));
+                .setPositiveButton("立即升级", (d, w) -> downloadWithProgress(url));   /* 【2026-10-24】改走 APP 内进度条下载，不再用静默的系统下载器 */
 
         if (force) {
             b.setNegativeButton("退出", (d, w) -> activity.finish());
