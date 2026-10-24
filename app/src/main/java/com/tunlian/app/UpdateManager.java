@@ -185,7 +185,7 @@ public class UpdateManager {
     }
 
     /* ============ 【2026-10-21】APP 内带进度条下载（网页点下载直接弹进度框，不用下拉通知栏） ============ */
-    private androidx.appcompat.app.AlertDialog progressDlg;
+    private androidx.appcompat.app.AlertDialog progressDialog;
     private android.widget.TextView progressText;
     private android.widget.ProgressBar progressBar;
     private volatile boolean progressCancelled = false;
@@ -289,9 +289,9 @@ public class UpdateManager {
     }
 
     private void dismissProgressDialog() {
-        if (progressDlg != null) {
-            try { progressDlg.dismiss(); } catch (Exception ignored) {}
-            progressDlg = null;
+        if (progressDialog != null) {
+            try { progressDialog.dismiss(); } catch (Exception ignored) {}
+            progressDialog = null;
         }
     }
 
