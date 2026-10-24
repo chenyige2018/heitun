@@ -184,6 +184,117 @@ public class UpdateManager {
         }
     }
 
+    /* ============ 【2026-10-21】APP 内带进度条下载（网页点下载直接弹进度框，不用下拉通知栏） ============ */
+    private androidx.appcompat.app.AlertDialog progressDlg;
+    private android.widget.TextView progressText;
+    private android.widget.ProgressBar progressBar;
+    private volatile boolean progressCancelled = false;
+
+    /** 网页调用 / 升级弹窗「立即升级」共用：window.TunLianApp.downloadApk(url) */
+    void downloadWithProgress(final String url) {
+        if (url == null || url.trim().isEmpty()) return;
+        progressCancelled = false;
+        activity.runOnUiThread(this::showProgressDialog);
+        executor.execute(() -> {
+            InputStream is = null;
+            java.io.FileOutputStream fos = null;
+            File apk = null;
+            try {
+                File dir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                if (dir == null || (!dir.exists() && !dir.mkdirs())) dir = activity.getCacheDir();
+                apk = new File(dir, "update_progress.apk");
+                if (apk.exists()) apk.delete();
+
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(30000);
+                conn.setInstanceFollowRedirects(true);
+                conn.setUseCaches(false);
+                conn.setRequestProperty("User-Agent", activity.getString(R.string.ua_tag) + "/" + BuildConfig.VERSION_NAME);
+                if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) throw new Exception("HTTP " + conn.getResponseCode());
+                long total = conn.getContentLength();
+                is = conn.getInputStream();
+                fos = new java.io.FileOutputStream(apk);
+                byte[] buf = new byte[8192];
+                long done = 0;
+                int n, lastPct = -1;
+                while ((n = is.read(buf)) > 0) {
+                    if (progressCancelled) break;
+                    fos.write(buf, 0, n);
+                    done += n;
+                    if (total > 0) {
+                        int pct = (int) (done * 100 / total);
+                        if (pct != lastPct) {
+                            lastPct = pct;
+                            final int p = pct;
+                            final long d = done, t = total;
+                            activity.runOnUiThread(() -> updateProgressDialog(p, d, t));
+                        }
+                    }
+                }
+                fos.flush();
+                final File fin = (progressCancelled || apk.length() <= 0) ? null : apk;
+                activity.runOnUiThread(() -> {
+                    dismissProgressDialog();
+                    if (fin != null) {
+                        pendingApk = fin;
+                        installPending();   /* 下载完直接弹安装 */
+                    } else if (!progressCancelled) {
+                        Toast.makeText(activity, "下载未完成，请重试", Toast.LENGTH_SHORT).show();
+                    }
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "进度下载失败", e);
+                if (apk != null && apk.exists() && progressCancelled) apk.delete();
+                activity.runOnUiThread(() -> {
+                    dismissProgressDialog();
+                    Toast.makeText(activity, "下载失败，请检查网络后重试", Toast.LENGTH_SHORT).show();
+                });
+            } finally {
+                try { if (is != null) is.close(); } catch (Exception ignored) {}
+                try { if (fos != null) fos.close(); } catch (Exception ignored) {}
+            }
+        });
+    }
+
+    private void showProgressDialog() {
+        if (activity.isFinishing() || activity.isDestroyed()) return;
+        dismissProgressDialog();
+        android.widget.LinearLayout box = new android.widget.LinearLayout(activity);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * activity.getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, pad);
+        progressText = new android.widget.TextView(activity);
+        progressText.setText("正在连接服务器…");
+        progressText.setTextSize(15);
+        progressBar = new android.widget.ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
+        progressBar.setMax(100);
+        progressBar.setProgress(0);
+        box.addView(progressText);
+        box.addView(progressBar);
+        progressDialog = new androidx.appcompat.app.AlertDialog.Builder(activity)
+                .setTitle("正在下载安装包")
+                .setView(box)
+                .setCancelable(false)
+                .setNegativeButton("取消", (d, w) -> progressCancelled = true)
+                .create();
+        progressDialog.show();
+    }
+
+    private void updateProgressDialog(int pct, long done, long total) {
+        if (progressBar == null) return;
+        progressBar.setProgress(pct);
+        long dMb = done / 1048576, tMb = total / 1048576;
+        progressText.setText("已下载 " + dMb + " MB / " + tMb + " MB（" + pct + "%）");
+    }
+
+    private void dismissProgressDialog() {
+        if (progressDlg != null) {
+            try { progressDlg.dismiss(); } catch (Exception ignored) {}
+            progressDlg = null;
+        }
+    }
+
     private void registerReceiver() {
         if (downloadReceiver != null) return;
         downloadReceiver = new BroadcastReceiver() {
