@@ -166,7 +166,7 @@ public class MeetingActivity extends AppCompatActivity {
         setupAvatarGrid();
 
         TextView tvRoom = findViewById(R.id.tvRoom);
-        tvRoom.setText("TUN" + roomId);
+        tvRoom.setText(String.valueOf(roomId));   /* 【2026-11-02】去掉 TUN 前缀，只留数字会议号 */
 
         findViewById(R.id.btnForward).setOnClickListener(v -> shareInvite());
         findViewById(R.id.btnLeave).setOnClickListener(v -> leaveRoom());
@@ -1491,17 +1491,129 @@ public class MeetingActivity extends AppCompatActivity {
                 .show();
     }
 
+    /**
+     * 【2026-11-02】转发会议：四个入口，不再走系统分享面板
+     * 贝贝好友 / 贝贝群 → 拉本系统通讯录（chatTargets）多选后走 forwardToChat
+     * 转发微信 / 转发QQ → 定向拉起对应 APP（不带系统面板，没装则复制邀请内容）
+     */
     private void shareInvite() {
+        new AlertDialog.Builder(this)
+                .setTitle("转发会议")
+                .setItems(new String[]{"贝贝好友", "贝贝群", "转发微信", "转发QQ"}, (d, w) -> {
+                    if (w == 0) {
+                        pickChatTarget("user");
+                    } else if (w == 1) {
+                        pickChatTarget("qun");
+                    } else if (w == 2) {
+                        shareToApp("com.tencent.mm", "微信");
+                    } else if (w == 3) {
+                        shareToApp("com.tencent.mobileqq", "QQ");
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 邀请文案：只带房间号，不再带 TUN 前缀 */
+    private String inviteText() {
+        return "【豚链】邀请你加入会议，房间号 " + roomId
+                + "，点击加入：" + base + "/meeting/" + roomId + ".html";
+    }
+
+    /** 定向拉起微信 / QQ（不经过系统分享面板） */
+    private void shareToApp(String pkg, String label) {
         try {
-            String text = "【豚链】邀请你加入会议 TUN" + roomId
-                    + "，点击加入：" + base + "/meeting/" + roomId + ".html";
             Intent send = new Intent(Intent.ACTION_SEND);
             send.setType("text/plain");
-            send.putExtra(Intent.EXTRA_TEXT, text);
-            startActivity(Intent.createChooser(send, "邀请加入会议"));
+            send.setPackage(pkg);
+            send.putExtra(Intent.EXTRA_TEXT, inviteText());
+            send.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(send);
         } catch (Exception e) {
-            Toast.makeText(this, "分享失败", Toast.LENGTH_SHORT).show();
+            copyInvite("未安装" + label + "，已复制邀请内容，去粘贴发送");
         }
+    }
+
+    private void copyInvite(String tip) {
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("meeting", inviteText()));
+        } catch (Exception ignored) {
+        }
+        Toast.makeText(this, tip, Toast.LENGTH_LONG).show();
+    }
+
+    /** 拉本系统好友/群列表，多选后转发会议卡片 */
+    private void pickChatTarget(final String type) {
+        final String label = "user".equals(type) ? "贝贝好友" : "贝贝群";
+        showLoading("正在获取" + label + "…");
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("type", type);
+        http("GET", "/index.php/index/meeting/chatTargets.html", q, (resp, err) -> {
+            hideLoading();
+            JSONArray arr = null;
+            if (resp != null && resp.optInt("code", 1) == 0) {
+                arr = resp.optJSONArray("data");
+                if (arr == null && resp.optJSONObject("data") != null
+                        && resp.optJSONObject("data").optJSONArray("list") != null) {
+                    arr = resp.optJSONObject("data").optJSONArray("list");
+                }
+            }
+            if (arr == null || arr.length() == 0) {
+                Toast.makeText(this, "暂无可转发的" + label, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            final int n = arr.length();
+            String[] names = new String[n];
+            final int[] ids = new int[n];
+            final boolean[] checked = new boolean[n];
+            for (int i = 0; i < n; i++) {
+                JSONObject o = arr.optJSONObject(i);
+                ids[i] = (o == null) ? 0 : o.optInt("id", 0);
+                String nm = (o == null) ? "" : o.optString("name", "");
+                names[i] = (nm.isEmpty() ? ("用户" + ids[i]) : nm)
+                        + ("qun".equals(type) ? "（群号 " + ids[i] + "）" : "");
+            }
+            new AlertDialog.Builder(this)
+                    .setTitle("转发会议给" + label)
+                    .setMultiChoiceItems(names, checked, (dl, which, isChecked) -> checked[which] = isChecked)
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("转发", (dl, w) -> {
+                        List<Integer> picked = new ArrayList<>();
+                        for (int i = 0; i < n; i++) {
+                            if (checked[i] && ids[i] > 0) picked.add(ids[i]);
+                        }
+                        if (picked.isEmpty()) {
+                            Toast.makeText(this, "请先选择转发对象", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        forwardToChat(type, picked, label);
+                    })
+                    .show();
+        });
+    }
+
+    private void forwardToChat(String type, List<Integer> picked, String label) {
+        showLoading("转发中…");
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < picked.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(picked.get(i));
+        }
+        Map<String, String> p = new LinkedHashMap<>();
+        p.put("roomId", String.valueOf(roomId));
+        p.put("type", type);
+        p.put("ids", sb.toString());
+        http("POST", "/index.php/index/meeting/forwardToChat.html", p, (resp, err) -> {
+            hideLoading();
+            if (resp != null && resp.optInt("code", 1) == 0) {
+                Toast.makeText(this, "已转发给 " + picked.size() + " 个" + label, Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "转发失败：" + (resp == null ? "网络异常" : resp.optString("msg", "未知错误")),
+                        Toast.LENGTH_LONG).show();
+            }
+        });
     }
     /* ==================== 通用全屏页面壳 / 转写记录 ==================== */
 
@@ -1566,7 +1678,7 @@ public class MeetingActivity extends AppCompatActivity {
         curBg.setColor(Color.parseColor("#232830"));
         cur.setBackground(curBg);
         TextView ct = new TextView(this);
-        ct.setText("当前会议 TUN" + roomId);
+        ct.setText("当前会议 " + roomId);
         ct.setTextColor(Color.WHITE);
         ct.setTextSize(15);
         cur.addView(ct);
@@ -1576,7 +1688,7 @@ public class MeetingActivity extends AppCompatActivity {
         cs.setTextSize(12);
         cs.setPadding(0, 6, 0, 0);
         cur.addView(cs);
-        cur.setOnClickListener(v -> openTranscriptDetail(roomId, "当前会议 TUN" + roomId));
+        cur.setOnClickListener(v -> openTranscriptDetail(roomId, "当前会议 " + roomId));
         LinearLayout.LayoutParams curp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         curp.bottomMargin = 12;

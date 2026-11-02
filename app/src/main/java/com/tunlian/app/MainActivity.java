@@ -212,7 +212,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setUseWideViewPort(true);
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);   /* 【2026-11-02】永不缓存网页，改完服务器立刻在 APP 生效 */
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         // 【2026-10-19】UA 标识按品牌区分（豚链AI=TunLianApp / 贝贝快聊=BeibeiApp），网页据此判断在哪个 APP 里
