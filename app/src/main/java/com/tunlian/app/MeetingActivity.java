@@ -1544,7 +1544,7 @@ public class MeetingActivity extends AppCompatActivity {
         Toast.makeText(this, tip, Toast.LENGTH_LONG).show();
     }
 
-    /** 拉本系统好友/群列表，多选后转发会议卡片 */
+    /** 拉本系统好友/群列表，多选后转发会议卡片（【2026-11-02】带头像：头像+名字+勾选自绘行） */
     private void pickChatTarget(final String type) {
         final String label = "user".equals(type) ? "贝贝好友" : "贝贝群";
         showLoading("正在获取" + label + "…");
@@ -1565,19 +1565,54 @@ public class MeetingActivity extends AppCompatActivity {
                 return;
             }
             final int n = arr.length();
-            String[] names = new String[n];
             final int[] ids = new int[n];
             final boolean[] checked = new boolean[n];
+            int dpi = (int) getResources().getDisplayMetrics().density;
+
+            LinearLayout list = new LinearLayout(this);
+            list.setOrientation(LinearLayout.VERTICAL);
             for (int i = 0; i < n; i++) {
                 JSONObject o = arr.optJSONObject(i);
                 ids[i] = (o == null) ? 0 : o.optInt("id", 0);
                 String nm = (o == null) ? "" : o.optString("name", "");
-                names[i] = (nm.isEmpty() ? ("用户" + ids[i]) : nm)
+                String icon = (o == null) ? "" : o.optString("icon", "");
+                if (icon.startsWith("/")) icon = base + icon;
+                String show = (nm.isEmpty() ? ("用户" + ids[i]) : nm)
                         + ("qun".equals(type) ? "（群号 " + ids[i] + "）" : "");
+                final int idx = i;
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(14 * dpi, 8 * dpi, 14 * dpi, 8 * dpi);
+                row.addView(buildAvatarView(nm.isEmpty() ? ("用户" + ids[i]) : nm, icon, 40 * dpi));
+                TextView tv = new TextView(this);
+                tv.setText(show);
+                tv.setTextSize(15);
+                tv.setTextColor(Color.parseColor("#222222"));
+                tv.setPadding(10 * dpi, 0, 6 * dpi, 0);
+                tv.setLineSpacing(0, 1.1f);
+                row.addView(tv, new LinearLayout.LayoutParams(0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+                final TextView mark = new TextView(this);
+                mark.setText("☐");
+                mark.setTextSize(22);
+                mark.setTextColor(Color.parseColor("#888888"));
+                mark.setPadding(8 * dpi, 0, 0, 0);
+                row.addView(mark);
+                row.setOnClickListener(v -> {
+                    checked[idx] = !checked[idx];
+                    mark.setText(checked[idx] ? "☑" : "☐");
+                    mark.setTextColor(checked[idx]
+                            ? Color.parseColor("#07C160") : Color.parseColor("#888888"));
+                });
+                list.addView(row);
             }
+            ScrollView sv = new ScrollView(this);
+            sv.addView(list);
+
             new AlertDialog.Builder(this)
-                    .setTitle("转发会议给" + label)
-                    .setMultiChoiceItems(names, checked, (dl, which, isChecked) -> checked[which] = isChecked)
+                    .setTitle("转发会议给" + label + "（点行勾选）")
+                    .setView(sv)
                     .setNegativeButton("取消", null)
                     .setPositiveButton("转发", (dl, w) -> {
                         List<Integer> picked = new ArrayList<>();
